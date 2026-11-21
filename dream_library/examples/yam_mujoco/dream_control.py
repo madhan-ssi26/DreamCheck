@@ -85,7 +85,7 @@ STATION_ROBOT = {
 STATION_SLOTS = {"left": "arm_l", "right": "arm_r"}
 
 
-def policy_config(model, gateway, poses):
+def policy_config(model, gateway, poses, *, action_hz=20, embodiment=None):
     """The dream client's session config for one model.
     @param model The model id.
     @param gateway The HTTPS gateway origin.
@@ -97,11 +97,11 @@ def policy_config(model, gateway, poses):
         "checkpoint": model,
         "timeout_ms": 45000,
         "strict": False,  # the sim checks every chunk itself (validate_chunk)
-        "action_hz": 20,
+        "action_hz": action_hz,
         "_record": False,  # simulated episodes are not recorded to the account
     }
     if not poses:
-        config["embodiment"] = YAM_EMBODIMENT
+        config["embodiment"] = embodiment if embodiment is not None else YAM_EMBODIMENT
     return config
 
 
@@ -246,7 +246,9 @@ def validate_chunk(env, actions, action_limit=48, *, verbose=True, adjustments=N
         if not np.isfinite(full).all():
             raise ValueError(f"{side} chunk contains non-finite values; no rows executed.")
         rows = full[:action_limit].copy()
-        limits = np.vstack([*[env.model.joint(f"{side}_joint{i}").range for i in range(1, 7)], [0, 1]])
+        joint_limits = (env.joint_limits(side) if hasattr(env, "joint_limits") else
+                        [env.model.joint(f"{side}_joint{i}").range for i in range(1, 7)])
+        limits = np.vstack([joint_limits, [0, 1]])
         bounded = np.clip(rows, limits[:, 0], limits[:, 1])
         overshoot = np.abs(rows - bounded)
         # Joint policy predictions are unbounded; project finite targets onto
@@ -273,6 +275,21 @@ def validate_chunk(env, actions, action_limit=48, *, verbose=True, adjustments=N
         for notice in notices:
             print(f"Limit adjustment: {notice}", flush=True)
     return tuple(prepared)
+
+
+def joint_reply(reply):
+    """Pack a joint-only fine-tune's per-part actions into the YAM control format."""
+    if all(key in reply for key in ("q_l_chunk", "q_r_chunk")):
+        return reply
+    parts = reply.get("per_key", {})
+    packed = {}
+    for side in ("left", "right"):
+        arm = np.asarray(parts.get(f"action.{side}_arm"), dtype=float)
+        grip = np.asarray(parts.get(f"action.{side}_gripper"), dtype=float)
+        if arm.ndim != 2 or arm.shape[1] != 6 or grip.shape not in {(len(arm),), (len(arm), 1)}:
+            raise ValueError(f"Checkpoint did not return the trained {side} joints and gripper.")
+        packed[f"q_{side[0]}_chunk"] = np.column_stack((arm, grip))
+    return packed
 
 
 RESET_REFUSED = (
@@ -318,13 +335,19 @@ class RunViewerSync:
         return True
 
 
-def main(argv=None, shared_env=None, shared_viewer=None, stop_event=None, collision_view=None):
+def main(
+    argv=None, shared_env=None, shared_viewer=None, stop_event=None, collision_view=None, on_step=None,
+    *, on_wait=None, on_chunk=None, embodiment=None,
+):
     """Run this module entry point.
     @param argv Optional command-line arguments.
     @param shared_env Optional existing simulation environment.
     @param shared_viewer Optional existing viewer.
     @param stop_event Optional task cancellation event.
     @param collision_view Optional collision overlay.
+    @param on_step Optional callback with environment and images after a step. A true return ends the run.
+    @param on_wait Optional callback with the environment before each policy request.
+    @param on_chunk Optional callback with the reply, bounded targets, executed row count and request RTT.
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", default="put apple into the bowl")
@@ -332,6 +355,7 @@ def main(argv=None, shared_env=None, shared_viewer=None, stop_event=None, collis
         "--model", type=resolve_model, default=BETA_MODEL, help="beta, or any model id, such as a fine-tune"
     )
     parser.add_argument("--actions", type=int, default=48, help="Execute 1–48 rows before observing again")
+    parser.add_argument("--policy-hz", type=int, choices=(10, 20), default=20, help="Rate of policy action rows")
     parser.add_argument("--seconds", type=float, default=120, help="Wall-clock trial duration")
     parser.add_argument("--show-side-panel", action="store_true", help="Show native MuJoCo controls")
     parser.add_argument("--headless", action="store_true")
@@ -409,10 +433,13 @@ def main(argv=None, shared_env=None, shared_viewer=None, stop_event=None, collis
             poses = args.model in POSE_MODELS
             if poses and not args.quiet:
                 print("  This model reads each hand's pose; the serve adds it from the YAM station keys.")
-            policy = open_policy(policy_config(args.model, gateway, poses), key)
+            policy = open_policy(policy_config(args.model, gateway, poses, action_hz=args.policy_hz,
+                                              embodiment=embodiment), key)
             feed(policy, env, windows, args.task, args.model, steps, every=0, station=poses)
             restarts = 0
             while active():
+                if on_wait is not None:
+                    on_wait(env)
                 started = time.monotonic()
                 future = pool.submit(policy.get_action)
                 # Hold simulation time while inference is pending; keep the viewer responsive.
@@ -435,13 +462,13 @@ def main(argv=None, shared_env=None, shared_viewer=None, stop_event=None, collis
                         restarts += 1
                         print("  The model restarted the episode; asking again.", flush=True)
                         continue
-                    if poses or not needs_poses(error):
+                    if poses or embodiment is not None or not needs_poses(error):
                         raise
                     # The model reads each hand's pose: open it again with the poses, and ask again.
                     print("  This model reads each hand's pose; sending the YAM station keys.", flush=True)
                     policy.close()
                     poses = True
-                    policy = open_policy(policy_config(args.model, gateway, poses), key)
+                    policy = open_policy(policy_config(args.model, gateway, poses, action_hz=args.policy_hz), key)
                     feed(policy, env, windows, args.task, args.model, steps, every=0, station=poses)
                     continue
                 restarts = 0
@@ -455,6 +482,8 @@ def main(argv=None, shared_env=None, shared_viewer=None, stop_event=None, collis
                 if not active():
                     break
                 try:
+                    if embodiment is not None:
+                        reply = joint_reply(reply)
                     left, right = validate_chunk(
                         env, reply, args.actions, verbose=not args.quiet, adjustments=adjustments
                     )
@@ -469,23 +498,33 @@ def main(argv=None, shared_env=None, shared_viewer=None, stop_event=None, collis
                     )
                     print(f"Rejected action details saved to {diagnostic}")
                     raise
-                for l, r in zip(left[: args.actions], right[: args.actions]):
-                    if not active():
-                        break
-                    tick = time.monotonic()
-                    env.step(l, r)
-                    executed_rows += 1
-                    kept = steps % FRAME_EVERY_STEPS == 0
-                    images = capture(env, windows, keep=kept)
-                    if kept:
-                        feed(policy, env, windows, args.task, args.model, steps, station=poses)
-                    steps += 1
-                    if viewer:
-                        if collision_view is not None:
-                            collision_view.update(viewer)
-                        sync(viewer)
-                        cameras.update(images)
-                    time.sleep(max(0, 0.05 - (time.monotonic() - tick)))
+                chunk_start = executed_rows
+                try:
+                    for l, r in zip(left, right):
+                        if not active():
+                            break
+                        for substep in range(20 // args.policy_hz):
+                            if not active():
+                                break
+                            tick = time.monotonic()
+                            env.step(l, r)
+                            executed_rows += int(substep == 0)
+                            kept = steps % FRAME_EVERY_STEPS == 0
+                            images = capture(env, windows, keep=kept)
+                            if on_step is not None and on_step(env, images):
+                                return
+                            if kept:
+                                feed(policy, env, windows, args.task, args.model, steps, station=poses)
+                            steps += 1
+                            if viewer:
+                                if collision_view is not None:
+                                    collision_view.update(viewer)
+                                sync(viewer)
+                                cameras.update(images)
+                            time.sleep(max(0, 0.05 - (time.monotonic() - tick)))
+                finally:
+                    if on_chunk is not None:
+                        on_chunk(reply, (left, right), executed_rows - chunk_start, request_times[-1])
     finally:
         if policy is not None:
             try:

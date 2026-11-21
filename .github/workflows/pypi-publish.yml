@@ -37,6 +37,7 @@ permissions:
   contents: read
 jobs:
   plan:
+    if: github.repository == 'dreamlabs-co/dreamlabs'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:

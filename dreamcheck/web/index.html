@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DreamCheck · Action judge</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+  <script src="/benchmark.js" defer></script>
+  <script src="/recording.js" defer></script>
+  <script src="/scene-import.js" defer></script>
+  <script src="/workspace.js" defer></script>
+</head>
+<body>
+<aside class="sidebar">
+  <a href="#home" class="brand" aria-label="DreamCheck home"><span class="brand-mark" aria-hidden="true"></span><strong>DreamCheck</strong></a>
+  <nav aria-label="Workspaces">
+    <a href="#judge" data-workspace="judge"><span class="nav-icon observe-icon" aria-hidden="true"></span>Judge</a>
+    <a href="#benchmark" data-workspace="benchmark"><span class="nav-icon compare-icon" aria-hidden="true"></span>Compare</a>
+    <a href="#training" data-workspace="training"><span class="nav-icon train-icon" aria-hidden="true"></span>Fine-tune</a>
+    <a href="#history" data-workspace="history"><span class="nav-icon history-icon" aria-hidden="true"></span>Run history</a>
+    <a href="#recordings" data-workspace="recordings"><span class="nav-icon observe-icon" aria-hidden="true"></span>Import</a>
+  </nav>
+  <a href="#try" data-workspace="try" class="try-link">Try it in 2 minutes</a>
+  <div class="station"><span aria-hidden="true"></span><div><strong>YAM simulator</strong><small id="station-state">Local workspace</small></div></div>
+  <div class="platform-credit"><small>Powered by</small><img src="/dreamlabs-wordmark.png" alt="Dream Labs"></div>
+</aside>
+<main id="main">
+  <div id="home" class="screen" data-view-panel>
+    <div class="page-heading"><div><h1>DreamCheck</h1><p>See where a robot task went off course.</p></div></div>
+    <div class="start-grid">
+      <section><h2>Run a scene</h2><p>Try a prompt, watch the robot, and retry from the same setup.</p><a class="start-action" href="#judge">Open Judge <span aria-hidden="true">↗</span></a><a href="#recordings">Import a MuJoCo scene</a></section>
+      <section><h2>Inspect a recording</h2><p>Review a LeRobot episode and save the moment you want to investigate.</p><a class="start-action" href="#recording">Open recording import <span aria-hidden="true">↗</span></a></section>
+    </div>
+  </div>
+  <div id="judge" class="screen" data-view-panel hidden>
+    <div class="page-heading"><div><h1>Action judge</h1><p>See what Dream-1 requested and what the robot did.</p></div><button id="latest" class="secondary" hidden>Back to latest run</button></div>
+    <div class="mobile-jumps"><button class="text-button" data-jump="setup-panel">Run setup</button><button class="text-button" data-jump="inspection-panel">Run evidence</button></div>
+    <div class="workspace judge-grid">
+    <div class="panel-stack">
+    <section class="viewer" aria-labelledby="camera-title">
+      <div class="section-heading">
+        <h2 id="camera-title">Simulator camera</h2>
+        <div class="action-setting"><span id="camera-scene" class="mono"></span><span id="camera-label" class="pill mono">Offline</span></div>
+      </div>
+      <div class="camera">
+        <span id="camera-placeholder">Start a run to see the simulator.</span>
+        <img id="camera" alt="YAM simulator camera" hidden>
+      </div>
+      <div id="camera-views" class="camera-views" aria-label="Simulator camera views" hidden>
+        <button class="secondary" data-camera="top" aria-pressed="true">Overhead</button>
+        <button class="secondary" data-camera="overview" aria-pressed="false">3D angle</button>
+        <button class="secondary" data-camera="left" aria-pressed="false">Left wrist</button>
+        <button class="secondary" data-camera="right" aria-pressed="false">Right wrist</button>
+      </div>
+    </section>
+    <section id="inspection-panel" class="inspection" aria-label="Run evidence">
+      <div class="inspection-tabs" aria-label="Evidence view">
+        <button id="show-timeline" type="button" aria-pressed="true">Action timeline</button>
+        <button id="show-output" type="button" aria-pressed="false">Run output</button>
+      </div>
+      <div id="timeline-pane">
+        <p id="evidence-empty" class="muted empty-notice">Run Dream-1 to inspect action requests and joint corrections here.</p>
+        <div id="evidence" aria-label="Action timeline" hidden>
+          <div class="section-heading">
+            <p id="trace-summary" class="muted"></p>
+            <div class="action-setting evidence-tools">
+              <button id="peak" class="secondary" hidden>Show peak lift</button>
+              <button id="follow" class="secondary" hidden></button>
+            </div>
+          </div>
+          <p id="evidence-title" hidden>Action timeline</p>
+          <div class="legend"><span id="clipping-legend">Steps clipped</span><span>Fruit lift</span></div>
+          <div id="timeline" aria-label="Select a model response to inspect its camera frame and joint corrections"></div>
+          <div id="chunk-details"></div>
+        </div>
+      </div>
+      <div id="output-pane" hidden>
+        <p id="output-empty" class="muted empty-notice">Run output appears here when the simulator starts.</p>
+        <div id="terminal" aria-label="Run output" hidden><pre id="output"></pre></div>
+      </div>
+    </section>
+    </div>
+    <div class="panel-stack judge-tools">
+    <section id="setup-panel" class="controls" aria-labelledby="task-title">
+      <div class="section-heading"><h2 id="task-title">Run setup</h2></div>
+      <label for="goal">Scored task</label>
+      <select id="goal"><option value="apple">Apple into bowl</option><option value="orange">Orange into bowl</option></select>
+      <div class="section-heading prompt-heading"><label for="prompt">Prompt</label><button id="preset" class="text-button">Load demo prompt</button></div>
+      <textarea id="prompt" rows="3" maxlength="400">put apple into the bowl</textarea>
+      <div class="settings">
+        <div>
+          <label for="actions">Steps per response</label>
+          <input id="actions" type="number" min="1" max="48" value="48" required aria-describedby="cadence">
+        </div>
+        <div>
+          <label for="seconds">Time limit (s)</label>
+          <input id="seconds" type="number" min="15" max="120" value="60" required>
+        </div>
+      </div>
+      <p id="cadence" class="mono"></p>
+      <label for="layout">Scene</label>
+        <select id="layout">
+          <option value="stock">Stock simulator scene</option>
+          <option value="workshop">Workshop · parts tray and blocks</option>
+          <option value="holdout-left">Holdout · left</option>
+          <option value="holdout-right">Holdout · right</option>
+          <option value="holdout-far">Holdout · far</option>
+        </select>
+      <p id="scene-note" class="muted" hidden>Physical blocks, puck, and parts tray. DreamCheck scores only the selected fruit.</p>
+      <details class="setup-options">
+        <summary>Model checkpoint</summary>
+        <label for="model">Checkpoint ID</label>
+        <input id="model" type="text" value="dreamlabs/dream-1-beta" maxlength="160">
+      </details>
+      <div class="buttons run-actions">
+        <button id="run">Run Dream-1</button>
+        <button id="reference" class="secondary">Run scripted reference</button>
+        <button id="stop-run" class="secondary" hidden>Stop run</button>
+      </div>
+      <p id="status" role="status">Ready</p>
+    </section>
+  <section id="result" class="verdict-card" aria-labelledby="result-title" hidden>
+    <div class="section-heading">
+      <h2>Task verdict</h2>
+      <span id="result-mode" class="pill mono"></span>
+    </div>
+    <h3 id="result-title"></h3>
+    <p id="result-detail"></p>
+    <p id="result-prompt" class="muted"></p>
+    <ol id="stages" aria-label="Task milestones" hidden>
+      <li>Lifted</li><li>Reached bowl</li><li>Settled in bowl</li>
+    </ol>
+    <div id="retry-controls" class="buttons" hidden>
+      <button id="retry" class="secondary">Retry with edited prompt</button>
+      <button id="shorter"></button>
+      <button id="compare-from-run" class="secondary">Compare this prompt</button>
+      <button id="test-fix" hidden>Test a fix</button>
+    </div>
+    <p id="repair-error" class="muted" role="status" hidden></p>
+    <div id="comparison" hidden></div>
+  </section>
+    </div>
+    </div>
+  </div>
+  <div id="benchmark" class="screen" data-view-panel hidden>
+    <div class="page-heading"><div><h1>Compare</h1><p>Change one setting and judge both runs on matched scenes.</p></div><span id="bench-label" class="pill mono"></span></div>
+    <div class="mobile-jumps"><button class="text-button" data-jump="compare-setup">Comparison setup</button><button class="text-button" data-jump="compare-results">Results and frames</button></div>
+    <div class="workspace compare-grid">
+    <div id="compare-results" class="panel-stack compare-results">
+      <section id="bench-empty" class="empty-card"><h2>Comparison results</h2><p class="muted">Run a comparison to see the results and simulator frames here.</p></section>
+      <section id="bench-report" hidden></section>
+      <section id="bench-inspector" hidden>
+        <div class="section-heading">
+          <h2 id="bench-inspector-title">Compare simulator frames</h2>
+          <div class="action-setting">
+            <select id="bench-camera" aria-label="Camera angle for both runs" hidden><option value="top">Overhead</option><option value="overview">3D angle</option><option value="left">Left wrist</option><option value="right">Right wrist</option></select>
+            <button id="bench-view-final" class="secondary" aria-pressed="true">Final frames</button>
+            <button id="bench-view-peak" class="secondary" aria-pressed="false">Peak lift</button>
+          </div>
+        </div>
+        <div id="bench-frames" class="bench-slots"></div>
+      </section>
+    </div>
+    <section id="compare-setup" class="controls compare-tools" aria-label="Comparison setup">
+    <h2>Comparison setup</h2>
+    <div id="repair-setup" hidden>
+      <p id="repair-reason" class="muted"></p>
+      <div class="bench-slot"><span class="slot-tag">A</span> Baseline<p id="repair-original"></p></div>
+      <div class="bench-slot"><span class="slot-tag candidate">B</span> Added instruction<p id="repair-instruction"></p></div>
+      <p id="repair-locked" class="mono"></p>
+      <label for="repair-scope">Run scope</label>
+      <select id="repair-scope"><option value="suite">3 scenes × 3 repeats per setting</option><option value="source">Quick check · original scene</option></select>
+      <p id="repair-budget" class="muted"></p>
+      <div class="buttons"><button id="repair-start">Run fix comparison</button><button id="repair-clear" class="secondary">Custom comparison</button></div>
+    </div>
+    <form id="bench-form">
+      <label for="bench-goal">Scored task</label><select id="bench-goal"><option value="apple">Apple into bowl</option><option value="orange">Orange into bowl</option></select>
+      <div class="bench-options">
+        <div><label for="bench-variable">Change one thing</label><select id="bench-variable"><option value="prompt">Prompt wording</option><option value="cadence">Steps per response</option><option value="checkpoint">Checkpoint</option></select></div>
+        <div><label for="bench-scenes">Scene set</label><select id="bench-scenes"><option value="holdout">3 held-out scenes</option><option value="stock">Stock scene only</option><option value="workshop">Workshop only</option><option value="all">Stock + 3 held-out scenes</option></select></div>
+        <div><label for="bench-seconds">Seconds per trial</label><input id="bench-seconds" type="number" min="15" max="60" value="30" required></div>
+        <div><label for="bench-repeats">Repeats per scene</label><input id="bench-repeats" type="number" min="1" max="3" value="1" required></div>
+      </div>
+      <div class="bench-slots">
+        <div class="bench-slot"><span class="slot-tag">A</span> <strong>Baseline</strong>
+          <label for="bench-a">Prompt</label><textarea id="bench-a" rows="3" maxlength="400" required>put apple into the bowl</textarea>
+          <div id="bench-cadence-a" hidden><label for="bench-actions-a">Steps per response</label><input id="bench-actions-a" type="number" min="1" max="48" value="48"></div>
+        </div>
+        <div class="bench-slot"><span class="slot-tag candidate">B</span> <strong>Candidate</strong>
+          <div id="bench-prompt-b"><label for="bench-b">Prompt</label><textarea id="bench-b" rows="3" maxlength="400"></textarea></div>
+          <div id="bench-cadence-b" hidden><label for="bench-actions-b">Steps per response</label><input id="bench-actions-b" type="number" min="1" max="48" value="24"></div>
+          <div id="bench-model-b" hidden><label for="bench-model">Checkpoint ID</label><input id="bench-model" type="text" value="dreamlabs/dream-1-beta-flash"></div>
+        </div>
+      </div>
+      <div class="buttons"><button id="bench-start" type="submit">Run comparison</button></div>
+    </form>
+    <div class="buttons" id="bench-running-actions" hidden><button type="button" id="bench-stop" class="secondary" hidden>Stop comparison</button><a id="bench-follow" href="#judge" hidden>Watch live camera</a></div>
+    <p id="bench-status" class="muted" role="status"></p>
+    <details id="bench-archive" class="setup-options" hidden>
+      <summary>Saved comparisons</summary>
+      <div id="bench-archive-list" class="buttons"></div>
+    </details>
+    </section>
+    </div>
+  </div>
+  <div id="history" class="screen" data-view-panel hidden>
+    <div class="page-heading"><div><h1>Run history</h1><p>Find a saved run and reopen its camera and action timeline.</p></div></div>
+    <section>
+    <div class="history-filters">
+      <div><label for="history-query">Search runs</label><input id="history-query" type="search" placeholder="Prompt, checkpoint or scene"></div>
+      <div><label for="history-filter">Outcome</label><select id="history-filter"><option value="all">All outcomes</option><option value="passed">Passed</option><option value="task_timeout">Timed out</option><option value="errors">Errors or stopped</option></select></div>
+    </div>
+    <div id="run-list"></div>
+    </section>
+  </div>
+  <div id="training" class="screen" data-view-panel hidden>
+    <div class="page-heading"><div><h1>Fine-tune</h1><p>Review validated demonstrations and load a published checkpoint.</p></div><span id="training-state" class="pill mono"></span></div>
+    <p id="training-empty" class="muted" hidden></p>
+    <div class="workspace training-grid" id="training-data" hidden>
+      <section>
+        <h2>Training recordings</h2>
+        <p id="training-counts" class="muted"></p>
+        <label for="training-episode">Review a graded demonstration</label>
+        <select id="training-episode"></select>
+        <video id="training-video" controls preload="metadata" muted playsinline></video>
+        <p id="evaluation-summary" class="muted"></p>
+      </section>
+      <section class="controls">
+        <h2>Dream Labs status</h2>
+        <p id="training-upload"></p>
+        <button id="dataset-status" class="secondary" hidden>Check dataset status</button>
+        <label for="training-job">Dream Labs job ID</label>
+        <input id="training-job" type="text" placeholder="Paste job ID">
+        <button id="job-status" class="secondary">Check job status</button>
+        <p id="training-cloud" class="muted" role="status"></p>
+        <button id="use-checkpoint" hidden>Use published checkpoint</button>
+      </section>
+    </div>
+  </div>
+  <div id="recordings" class="screen" data-view-panel hidden>
+    <div class="page-heading"><div><h1>Import</h1><p>Run a teammate’s simulation or inspect their recorded evidence.</p></div></div>
+    <div class="inspection-tabs import-tabs" aria-label="Import type"><button id="choose-scene-import" aria-pressed="true">MuJoCo scenes</button><button id="choose-recording-import" aria-pressed="false">Recordings</button></div>
+    <div id="scene-import-panel" class="workspace">
+    <section class="scene-import" aria-label="Runnable scene package">
+      <h2>Run a MuJoCo scene</h2><p class="muted">Import a ZIP with a scene and its YAM-compatible camera and control mappings.</p>
+      <label for="saved-scenes">Saved scenes</label><select id="saved-scenes"><option value="">Choose a scene</option></select>
+      <label for="scene-package">Scene package</label><input id="scene-package" type="file" accept=".zip">
+      <p id="scene-upload-status" role="status"></p>
+      <details id="scene-goal" hidden>
+        <summary>Set a goal region</summary>
+        <label for="scene-object">Movable object</label><select id="scene-object"></select>
+        <label for="scene-destination">Fixed destination</label><select id="scene-destination"></select>
+        <div class="goal-dimensions">
+          <div><label for="scene-width">X (cm)</label><input id="scene-width" type="number" min="1" max="100" value="14" required></div>
+          <div><label for="scene-depth">Y (cm)</label><input id="scene-depth" type="number" min="1" max="100" value="14" required></div>
+          <div><label for="scene-height">Z (cm)</label><input id="scene-height" type="number" min="1" max="100" value="10" required></div>
+        </div>
+        <label for="scene-dwell">Consecutive ticks (50 ms each)</label><input id="scene-dwell" type="number" min="2" max="60" value="10" required>
+        <p class="muted">The object center must enter the world-aligned box and stay inside. Choose a site or body centered at the intended destination.</p>
+        <p id="scene-goal-summary" class="muted" role="status"></p>
+      </details>
+      <div class="buttons"><button id="scene-use" disabled>Open in Judge</button><a href="/api/scene-example" download>Download example ZIP</a></div>
+    </section>
+    <section class="scene-preview" aria-label="Scene preview"><h2>Scene preview</h2><img id="scene-preview" alt="Imported simulator view" hidden><p id="scene-preview-empty" class="muted">Select a scene to inspect its starting view.</p><figure id="scene-footprint" hidden><div aria-hidden="true"><span>+</span></div><figcaption></figcaption></figure></section>
+    </div>
+    <div id="recording-import-panel" class="workspace" hidden>
+      <div class="panel-stack">
+        <section id="record-video-panel" hidden>
+          <div class="section-heading"><h2>Recorded camera</h2><select id="record-camera" aria-label="Recorded camera"></select></div>
+          <video id="record-video" controls playsinline preload="metadata"></video>
+          <div class="buttons"><button id="record-mark" class="secondary" disabled>Mark the failure moment</button></div>
+        </section>
+        <section id="record-bookmarks" hidden>
+          <h2>Failure bookmarks</h2>
+          <form id="record-mark-form" hidden>
+            <label id="record-mark-time" for="record-label">Label</label><input id="record-label" maxlength="120" placeholder="Gripper opens before reaching the tray" required>
+            <div class="buttons"><button type="submit">Save bookmark</button><button type="button" class="secondary" id="record-mark-cancel">Cancel</button></div>
+          </form>
+          <ul id="record-marks"></ul><p id="record-mark-status" role="status"></p>
+        </section>
+        <section id="record-trace" hidden>
+          <h2>Observed motion</h2><p class="muted">Bars show the largest recorded state change per time window. Select one to seek the camera and inspect the vectors. Heights use recorded units, which can vary by channel.</p>
+          <div id="record-points" aria-label="Recording time windows"></div>
+          <p id="record-point"></p><pre id="record-vectors"></pre>
+        </section>
+      </div>
+      <section>
+        <h2>Recording folder</h2><label for="record-folder">Select a folder containing data and videos</label><input type="file" id="record-folder" webkitdirectory multiple>
+        <label for="record-episode">Episode</label><select id="record-episode" disabled></select>
+        <p id="record-status" role="status" class="muted"></p><p id="record-summary"></p><p id="record-inference" class="muted"></p>
+        <p class="muted">Files stay on this laptop. Imported motion and timing describe the recording. Automatic task verdicts require simulator state.</p>
+      </section>
+    </div>
+  </div>
+  <div id="try" class="screen" data-view-panel hidden>
+    <div class="page-heading"><div><h1>Try DreamCheck</h1><p>Figure out where one robot run stopped, then set up a fair retry.</p></div></div>
+    <section class="try-guide">
+      <ol>
+        <li>Open a timed-out Dream-1 run. If you have one of your own, use that.</li>
+        <li>Use the verdict, timeline, and wrist views to decide whether it stopped at pickup, transport, or release.</li>
+        <li>Choose <strong>Test a fix</strong>. Before starting a quick check, explain what changes between A and B.</li>
+      </ol>
+      <div class="buttons"><a id="try-example" hidden>Open an example timeout</a><a href="#history">Browse saved runs</a><a href="#judge">Run your own prompt</a></div>
+      <p class="muted">Trying this with a teammate? Let them do the steps without coaching. Ask where the run failed and what their retry would change.</p>
+    </section>
+  </div>
+</main>
+</body>
+</html>

@@ -1,69 +1,70 @@
-<div align="center">
+# DreamCheck
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/dreamlabs-logo-dark.png">
-  <img src="assets/dreamlabs-logo-light.png" alt="Dream Labs" width="520">
-</picture>
+DreamCheck helps Dream-1 users see where a robot task failed, test one change from the same starting scene, and share the evidence. It runs locally with the YAM MuJoCo simulator. No physical robot is required.
 
-<p>
-  <a href="https://dreamlabs.ai"><strong>Blog Post</strong></a> |
-  <a href="https://platform.dreamlabs.ai"><strong>DreamAPI</strong></a> |
-  <a href="https://platform.dreamlabs.ai/api-documentation"><strong>Documentation</strong></a> |
-  <a href="https://discord.gg/UAPxxH6tTg"><strong>Discord</strong></a>
-</p>
+[![Judge shows the simulator, reference action timeline, and a passing task verdict](dreamcheck/docs/images/judge.webp)](dreamcheck/docs/judge/README.md)
 
-</div>
+| Workspace | What you can do |
+| --- | --- |
+| [Judge and Run History](dreamcheck/docs/judge/README.md) | Watch the robot, inspect requested versus applied actions, and retry a saved run. |
+| [Compare](dreamcheck/docs/compare/README.md) | A/B test a prompt, action horizon, or checkpoint on matched layouts. |
+| [Scene import](dreamcheck/docs/scenes/README.md) | Run a compatible MuJoCo ZIP and optionally score a goal region. |
+| [Recording import](dreamcheck/docs/recordings/README.md) | Inspect LeRobot v2.1 video and telemetry, bookmark a failure, and export evidence. |
+| [Fine-tune](dreamcheck/docs/training/README.md) | Prepare validated demonstrations and evaluate a published checkpoint against its base model. |
 
-## What is this library for
+## Quick start
 
-`dreamlabs` is the Python client for DreamAPI, which hosts **Dream-1**, the Dream Labs robot model. Dream-1 looks at
-your robot's cameras and joint positions, reads the task you type, and answers with the next joint targets for the
-arms, zero-shot, with no training on your robot.
+Use Python 3.12 and Chrome or Edge. The quick start below targets Windows. Run these commands from the checkout root in PowerShell.
 
-It comes two ways:
-
-- **`dreamcli`** runs your robot on our control loop: setup, cameras, arms and Live View, with no code to write.
-- **`dream.DreamClient`** calls Dream-1 from your own control loop: you send observations, it returns actions.
-
-## Quick Guide
-
-Sign in at [platform.dreamlabs.ai](https://platform.dreamlabs.ai/api-keys) and create an API key. It is shown only
-once, so keep it somewhere safe.
-
-### dreamcli: our control loop
-
-```bash
-pip install dreamlabs
-dreamcli setup       # arms and cameras
-dreamcli robot up    # start the robot
+```powershell
+git clone https://github.com/madhan-ssi26/DreamCheck.git
+Set-Location DreamCheck
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install ./dream_library
+.\.venv\Scripts\python.exe -m dreamcheck serve
 ```
 
-Give it a task from [Live View](https://platform.dreamlabs.ai/live). For the full walkthrough, open
-[Robot Setup](https://platform.dreamlabs.ai/setup).
+Open [DreamCheck on localhost](http://127.0.0.1:8765/), choose **Run a scene**, then select **Run scripted reference** in Judge. Watch the arm place the fruit in the bowl and open the saved evidence. This workflow works without a Dream Labs account.
 
-### DreamClient: your own control loop
+For live inference, configure a Dream Labs API key using the [YAM credentials guide](dream_library/examples/yam_mujoco/README.md). Restart the server if you changed the environment after starting it. In Judge, select **Load demo prompt**, then **Run Dream-1**. Live inference uses account credits.
 
-```bash
-pip install dreamlabs-client
-export DREAM_API_KEY=dl_live_...
-```
+The [setup and troubleshooting guide](dreamcheck/docs/setup/README.md) covers the CLI, credential lookup, port conflicts, and local data. The [developer guide](dreamcheck/README.md) maps the source code, browser modules, and test commands.
 
-```python
-import dream
+## Visual walkthrough
 
-client = dream.DreamClient()
-```
+<details>
+<summary>Compare two prompts on matched layouts</summary>
 
-To run a model from your loop, see the [documentation](https://platform.dreamlabs.ai/api-documentation).
+![Completed comparison with seven baseline passes and four candidate passes](dreamcheck/docs/images/compare.webp)
 
-## Documentation
+In this saved comparison, the candidate lifted the apple higher on average and passed fewer trials. Use **Compare frames** to inspect a pair. [Compare guide](dreamcheck/docs/compare/README.md)
 
-The [DreamAPI documentation](https://platform.dreamlabs.ai/api-documentation) covers everything beyond the quick
-guide: getting started, calling Dream-1 from your own control loop with `dream.DreamClient`, showing your robot in
-Live View, bringing a robot of your own, and fine-tuning Dream-1 on recordings of your robot.
+</details>
 
-## License
+<details>
+<summary>Set a goal for an imported scene</summary>
 
-Apache License 2.0 (`LICENSE`). Three of the vendored packages, `i2rt`, `pyroki` and `jaxls` under
-`dream_library/vendor/`, keep their own MIT licenses, and the robot models and example assets that came from elsewhere
-keep theirs, each in a `LICENSE` file in its own folder.
+![Imported Workshop preview with an apple and tray selected for a goal region](dreamcheck/docs/images/scene-goal.webp)
+
+Download the Workshop example ZIP from Import. Select an object and destination, preview the region, then open the scene in Judge. [Scene import guide](dreamcheck/docs/scenes/README.md)
+
+</details>
+
+<details>
+<summary>Bookmark a moment in a recording</summary>
+
+![Recorded episode with a gripper timing bookmark and evidence export button](dreamcheck/docs/images/recording.webp)
+
+Pause or seek on the timeline, then choose **Mark the failure moment**. Export the selected frame and nearby telemetry from the saved bookmark. [Recording import guide](dreamcheck/docs/recordings/README.md)
+
+</details>
+
+## Release scope
+
+DreamCheck is a single-user workstation app bound to IPv4 loopback. Import packages and recordings from sources you trust. A browser can view saved runs by opening a link on the same workstation. To share evidence across machines, export it from the appropriate workspace.
+
+The built-in judge scores apple and orange placement. Imported scenes require YAM-compatible controls. Recording import supports LeRobot v2.1 Parquet and matching MP4 files. Fine-tuning submission and checkpoint serving depend on the Dream Labs account and platform.
+
+## Upstream and license
+
+DreamCheck application code in `dreamcheck/` is available under the [MIT license](dreamcheck/LICENSE). The bundled Dream Labs SDK and patched YAM simulator retain their [Apache 2.0 license](LICENSE) and [third-party notices](dream_library/THIRD-PARTY-LICENSES.md). See the [bundled library README](dream_library/README.md) and [YAM simulator guide](dream_library/examples/yam_mujoco/README.md) for upstream documentation.

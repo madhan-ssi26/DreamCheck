@@ -191,10 +191,57 @@ def add_bowl(asset, world):
             ET.SubElement(body, "geom", type="mesh", mesh=name, rgba="0 0 0 0")
 
 
-def build_xml():
+def add_workshop_props(asset, world):
+    """Dress the bench and add graspable objects away from the bowl approach."""
+    ET.SubElement(asset, "material", name="bench_slate", rgba=".35 .43 .49 1", specular=".20", shininess=".3")
+    ET.SubElement(asset, "material", name="bench_metal", rgba=".13 .19 .25 1", specular=".4", shininess=".25")
+    floor = world.find("geom[@type='plane']")
+    floor.set("rgba", ".16 .22 .29 1")
+    world.find("geom[@name='table']").set("material", "bench_slate")
+
+    # The markings sit on the table surface and carry no contacts.
+    for x in (-0.59, 0.59):
+        ET.SubElement(world, "geom", type="box", pos=f"{x} -.13 .7602", size=".003 .46 .0002",
+                      rgba=".31 .65 .72 1", contype="0", conaffinity="0")
+    for x in np.linspace(-.52, .52, 21):
+        ET.SubElement(world, "geom", type="box", pos=f"{x} -.51 .7602", size=".009 .002 .0002",
+                      rgba=".59 .71 .77 1", contype="0", conaffinity="0")
+
+    tray = ET.SubElement(world, "body", name="parts_tray", pos="-.30 -.24 .76")
+    ET.SubElement(tray, "geom", name="parts_tray_floor", type="box", pos="0 0 .007", size=".104 .070 .007",
+                  material="bench_metal")
+    for y in (-.063, .063):
+        ET.SubElement(tray, "geom", type="box", pos=f"0 {y} .025", size=".104 .007 .019", rgba=".20 .35 .47 1")
+    for x in (-.098, .098):
+        ET.SubElement(tray, "geom", type="box", pos=f"{x} 0 .025", size=".006 .057 .019", rgba=".20 .35 .47 1")
+    ET.SubElement(tray, "geom", type="box", pos="0 0 .022", size=".005 .056 .008", rgba=".26 .41 .51 1")
+
+    blocks = (
+        ("mint_block", (-.35, -.24, .797), (-.015, -.018, .17), ".20 .80 .63 1"),
+        ("amber_block", (-.25, -.24, .797), (-.018, -.016, -.22), ".99 .57 .16 1"),
+        ("blue_block", (.28, -.23, .785), (-.016, -.018, .28), ".22 .54 .90 1"),
+    )
+    for name, pos, angles, color in blocks:
+        body = ET.SubElement(world, "body", name=name, pos=numbers(pos), euler=numbers(angles))
+        ET.SubElement(body, "freejoint", name=f"{name}_free")
+        ET.SubElement(body, "geom", type="box", size=".021 .021 .021", rgba=color, mass=".06")
+        for x in (-.010, .010):
+            ET.SubElement(body, "geom", type="box", pos=f"{x} 0 .022", size=".003 .014 .001", rgba=".89 .95 .97 1",
+                          mass="0", contype="0", conaffinity="0")
+
+    puck = ET.SubElement(world, "body", name="inspection_puck", pos=".37 -.22 .778")
+    ET.SubElement(puck, "freejoint", name="inspection_puck_free")
+    ET.SubElement(puck, "geom", type="cylinder", size=".037 .015", rgba=".90 .34 .22 1", mass=".08")
+    ET.SubElement(puck, "geom", type="cylinder", pos="0 0 .016", size=".023 .001", rgba=".96 .79 .58 1",
+                  mass="0", contype="0", conaffinity="0")
+
+
+def build_xml(scene="stock"):
     """Use the browser's URDF transforms, not the older I2RT MJCF joint frames.
     @return The scene as an MJCF document string.
     """
+    if scene not in {"stock", "workshop"}:
+        raise ValueError(f"Unknown YAM scene: {scene}")
     root = ET.Element("mujoco", model="Dream YAM Sim")
     ET.SubElement(root, "compiler", angle="radian", meshdir=str(ASSETS))
     ET.SubElement(
@@ -259,6 +306,8 @@ def build_xml():
         lower=TOP_CAMERA_LOWER_M,
         tilt_up_deg=TOP_CAMERA_TILT_UP_DEG,
     )
+    camera(world, "overview", (1.02, -1.05, 1.59), (0, -.02, .90))
+    world.find("camera[@name='overview']").set("fovy", "45")
     # Mock housing and support follow the calibrated optical pose.
     top_pos = np.fromstring(top_camera.get("pos"), sep=" ")
     top_quat = np.fromstring(top_camera.get("quat"), sep=" ")
@@ -510,6 +559,8 @@ def build_xml():
             material="blue_glaze",
         )
 
+    if scene == "workshop":
+        add_workshop_props(asset, world)
     return ET.tostring(root, encoding="unicode")
 
 
@@ -538,9 +589,9 @@ def home_path(state, seconds=2.0, hz=20.0):
 class YamEnv:
     """Position servo control at 20 Hz, physics at 500 Hz. No API calls required."""
 
-    def __init__(self):
+    def __init__(self, scene="stock"):
         """Initialize the object and its owned state."""
-        self.model = mujoco.MjModel.from_xml_string(build_xml())
+        self.model = mujoco.MjModel.from_xml_string(build_xml(scene))
         self.data = mujoco.MjData(self.model)
         self.renderer = None
         self.reset()
@@ -595,17 +646,18 @@ class YamEnv:
         mujoco.mj_forward(self.model, self.data)
         return self.state()
 
+    def image(self, camera_name):
+        """Render a display or policy camera at the recorded aspect ratio."""
+        if self.renderer is None:
+            self.renderer = mujoco.Renderer(self.model, height=480, width=640)
+        self.renderer.update_scene(self.data, camera=camera_name)
+        return self.renderer.render()[60:420].copy()
+
     def images(self):
         """RGB uint8 images. Call after step; retain nine calls for a temporal window.
         @return By camera name (`top`, `left`, `right`), a 360x640x3 uint8 RGB image.
         """
-        if self.renderer is None:
-            self.renderer = mujoco.Renderer(self.model, height=480, width=640)
-        images = {}
-        for name in ("top", "left", "right"):
-            self.renderer.update_scene(self.data, camera=name)
-            images[name] = self.renderer.render()[60:420].copy()  # the reference station recording crop
-        return images
+        return {name: self.image(name) for name in ("top", "left", "right")}  # reference station recording crop
 
     def close(self):
         """Release the offscreen renderer."""
