@@ -17,6 +17,7 @@ function showWorkspace(name) {
   }
   const panel = document.getElementById(workspace);
   if (workspace === 'recordings') window.showImportType(name === 'recording' ? 'recording' : 'scene');
+  if (changed && workspace === 'training') window.refreshTraining?.();
   document.title = `DreamCheck · ${panel.querySelector('h1').textContent}`;
   if (changed) window.scrollTo(0, 0);
 }

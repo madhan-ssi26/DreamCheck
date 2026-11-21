@@ -24,3 +24,5 @@ The scene timestep must divide a 50 ms control tick into at most 100 physics sub
 Open **Set a goal region** and choose a named free-joint object and a fixed site or body. The destination's initial world position is the center of an axis-aligned X/Y/Z box. Set each dimension in centimeters, preview the footprint, and choose the required consecutive 50 ms ticks. The object center must enter from outside. A departure resets the dwell count. The rule measures occupancy, so the robot can still be holding the object at success. Leave the editor closed for a manual review run. A saved retry keeps the original rule and scene.
 
 Scene ZIPs and preview JPEGs stay in `.dreamcheck/scenes/`. Live requests send policy camera observations and robot state to Dream Labs as the run progresses.
+
+For a practical first import, download the Workshop ZIP, choose the **blue_block** as the object and **parts_tray** as the destination, and inspect the footprint before opening Judge. Import and preview work offline. Running the imported scene with Dream-1 uses live API credits.

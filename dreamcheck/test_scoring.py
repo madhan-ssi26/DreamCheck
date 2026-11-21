@@ -6,11 +6,12 @@ from types import SimpleNamespace
 import numpy as np
 
 from .scoring import TaskScorer
+from .relay import RelayScorer
 
 
 class FakeEnv:
     def __init__(self, fruit_position, velocity=(0, 0, 0), contact_body=2, target="apple"):
-        bodies = {"apple": 1, "bowl": 2, "right_gripper": 3, "orange": 4}
+        bodies = {"apple": 1, "bowl": 2, "right_gripper": 3, "orange": 4, "left_gripper": 5, "plate": 6}
         names = {index: name for name, index in bodies.items()}
         self.model = SimpleNamespace(
             body=lambda name: SimpleNamespace(id=bodies[name]) if isinstance(name, str) else SimpleNamespace(name=names[name]),
@@ -64,6 +65,32 @@ class ScorerFixtures(unittest.TestCase):
             result = orange.observe()
         self.assertEqual(result["verdict"], "passed")
         self.assertEqual(result["milestone"], "Orange settled in the bowl")
+
+
+class RelayFixtures(unittest.TestCase):
+    def relay_verdict(self, final_gripper):
+        env = FakeEnv((0, -0.04, .85), contact_body=5)
+        scorer = RelayScorer(env, .79)
+
+        def observe(position, contact, ticks):
+            env.model.geom_bodyid[1] = contact
+            env.data.body = FakeEnv(position).data.body
+            return [scorer.observe() for _ in range(ticks)][-1]
+
+        observe((.1, .1, .88), 5, 1)
+        observe((0, .19, .80), 6, 10)
+        observe((0, .19, .88), 3, 1)
+        observe((0, -.04, .88), final_gripper, 1)
+        return observe((0, -.04, .80), 2, 10)
+
+    def test_requires_right_arm_to_finish_relay(self):
+        self.assertEqual(self.relay_verdict(3)["verdict"], "passed")
+        self.assertIsNone(self.relay_verdict(5)["verdict"])
+
+    def test_direct_bowl_placement_cannot_pass(self):
+        scorer = RelayScorer(FakeEnv((0, -.04, .80)), .79)
+        for _ in range(12):
+            self.assertIsNone(scorer.observe()["verdict"])
 
 
 if __name__ == "__main__":

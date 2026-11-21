@@ -13,7 +13,7 @@
 </head>
 <body>
 <aside class="sidebar">
-  <a href="#home" class="brand" aria-label="DreamCheck home"><span class="brand-mark" aria-hidden="true"></span><strong>DreamCheck</strong></a>
+  <a href="#home" class="brand" data-workspace="home" aria-label="DreamCheck home"><span class="brand-mark" aria-hidden="true"></span><strong>DreamCheck</strong></a>
   <nav aria-label="Workspaces">
     <a href="#judge" data-workspace="judge"><span class="nav-icon observe-icon" aria-hidden="true"></span>Judge</a>
     <a href="#benchmark" data-workspace="benchmark"><span class="nav-icon compare-icon" aria-hidden="true"></span>Compare</a>
@@ -27,11 +27,20 @@
 </aside>
 <main id="main">
   <div id="home" class="screen" data-view-panel>
-    <div class="page-heading"><div><h1>DreamCheck</h1><p>See where a robot task went off course.</p></div></div>
+    <header class="home-hero">
+      <div class="home-intro">
+        <h1>See why a robot run failed</h1>
+        <p>Watch Dream-1 in the YAM simulator, inspect its camera inputs and actions, and retry from the same setup.</p>
+        <div class="buttons"><a class="start-action" href="#judge">Open Judge <span aria-hidden="true">↗</span></a><a href="#try">Try it in 2 minutes</a></div>
+      </div>
+      <figure><img src="/workshop.webp" width="640" height="360" alt="Two YAM arms facing a workbench with fruit, blocks and a divided tray"><figcaption>Workshop scene · YAM simulator</figcaption></figure>
+    </header>
     <div class="start-grid">
-      <section><h2>Run a scene</h2><p>Try a prompt, watch the robot, and retry from the same setup.</p><a class="start-action" href="#judge">Open Judge <span aria-hidden="true">↗</span></a><a href="#recordings">Import a MuJoCo scene</a></section>
-      <section><h2>Inspect a recording</h2><p>Review a LeRobot episode and save the moment you want to investigate.</p><a class="start-action" href="#recording">Open recording import <span aria-hidden="true">↗</span></a></section>
+      <a class="start-card" href="#recordings"><span><strong>Bring a scene</strong><small>Run a MuJoCo package with your own objects and goal.</small></span><span aria-hidden="true">↗</span></a>
+      <a class="start-card" href="#recording"><span><strong>Inspect a recording</strong><small>Find a moment in a LeRobot episode and export its evidence.</small></span><span aria-hidden="true">↗</span></a>
+      <a class="start-card" href="#benchmark"><span><strong>Compare a change</strong><small>Test prompts or checkpoints across matched layouts.</small></span><span aria-hidden="true">↗</span></a>
     </div>
+    <section id="home-recent" hidden><div class="section-heading"><h2>Latest saved run</h2><a href="#history">Run history</a></div><a id="home-run"></a></section>
   </div>
   <div id="judge" class="screen" data-view-panel hidden>
     <div class="page-heading"><div><h1>Action judge</h1><p>See what Dream-1 requested and what the robot did.</p></div><button id="latest" class="secondary" hidden>Back to latest run</button></div>
@@ -53,6 +62,12 @@
         <button class="secondary" data-camera="left" aria-pressed="false">Left wrist</button>
         <button class="secondary" data-camera="right" aria-pressed="false">Right wrist</button>
       </div>
+      <details id="policy-inputs" hidden>
+        <summary>Dream-1 camera inputs and timing</summary>
+        <p id="policy-timing" class="muted"></p>
+        <div id="policy-frames"></div>
+        <p class="muted">These JPEGs show the newest frame in each camera window prepared for the SDK. A reply confirms the request returned. Camera processing inside the model is outside this view.</p>
+      </details>
     </section>
     <section id="inspection-panel" class="inspection" aria-label="Run evidence">
       <div class="inspection-tabs" aria-label="Evidence view">
@@ -85,9 +100,20 @@
     <section id="setup-panel" class="controls" aria-labelledby="task-title">
       <div class="section-heading"><h2 id="task-title">Run setup</h2></div>
       <label for="goal">Scored task</label>
-      <select id="goal"><option value="apple">Apple into bowl</option><option value="orange">Orange into bowl</option></select>
+      <select id="goal"><option value="apple">Apple into bowl</option><option value="orange">Orange into bowl</option><option value="relay">Two-arm apple relay</option></select>
       <div class="section-heading prompt-heading"><label for="prompt">Prompt</label><button id="preset" class="text-button">Load demo prompt</button></div>
       <textarea id="prompt" rows="3" maxlength="400">put apple into the bowl</textarea>
+      <label for="layout">Scene</label>
+        <select id="layout">
+          <option value="stock">Stock simulator scene</option>
+          <option value="workshop">Workshop · parts tray and blocks</option>
+          <option value="holdout-left">Holdout · left</option>
+          <option value="holdout-right">Holdout · right</option>
+          <option value="holdout-far">Holdout · far</option>
+        </select>
+      <p id="scene-note" class="muted" hidden>Physical blocks, puck, and parts tray. DreamCheck scores only the selected fruit.</p>
+      <details class="setup-options">
+        <summary>Model and run settings</summary>
       <div class="settings">
         <div>
           <label for="actions">Steps per response</label>
@@ -99,17 +125,6 @@
         </div>
       </div>
       <p id="cadence" class="mono"></p>
-      <label for="layout">Scene</label>
-        <select id="layout">
-          <option value="stock">Stock simulator scene</option>
-          <option value="workshop">Workshop · parts tray and blocks</option>
-          <option value="holdout-left">Holdout · left</option>
-          <option value="holdout-right">Holdout · right</option>
-          <option value="holdout-far">Holdout · far</option>
-        </select>
-      <p id="scene-note" class="muted" hidden>Physical blocks, puck, and parts tray. DreamCheck scores only the selected fruit.</p>
-      <details class="setup-options">
-        <summary>Model checkpoint</summary>
         <label for="model">Checkpoint ID</label>
         <input id="model" type="text" value="dreamlabs/dream-1-beta" maxlength="160">
       </details>
@@ -128,6 +143,7 @@
     <h3 id="result-title"></h3>
     <p id="result-detail"></p>
     <p id="result-prompt" class="muted"></p>
+    <button id="open-policy-inputs" class="text-button" hidden>Inspect camera inputs and first reply</button>
     <ol id="stages" aria-label="Task milestones" hidden>
       <li>Lifted</li><li>Reached bowl</li><li>Settled in bowl</li>
     </ol>
@@ -220,6 +236,7 @@
     <div class="workspace training-grid" id="training-data" hidden>
       <section>
         <h2>Training recordings</h2>
+        <p id="training-task" class="muted"></p>
         <p id="training-counts" class="muted"></p>
         <label for="training-episode">Review a graded demonstration</label>
         <select id="training-episode"></select>
@@ -233,8 +250,14 @@
         <label for="training-job">Dream Labs job ID</label>
         <input id="training-job" type="text" placeholder="Paste job ID">
         <button id="job-status" class="secondary">Check job status</button>
+        <progress id="training-progress" aria-label="Fine-tuning steps completed" hidden></progress>
         <p id="training-cloud" class="muted" role="status"></p>
         <button id="use-checkpoint" hidden>Use published checkpoint</button>
+      </section>
+      <section id="baseline-card" hidden>
+        <div class="section-heading"><h2>Held-out relay baseline</h2><button id="baseline-refresh" class="text-button">Refresh results</button></div>
+        <p id="baseline-summary"></p>
+        <a id="baseline-run" hidden>Inspect latest trial ↗</a>
       </section>
     </div>
   </div>
@@ -302,6 +325,7 @@
         <li>Choose <strong>Test a fix</strong>. Before starting a quick check, explain what changes between A and B.</li>
       </ol>
       <div class="buttons"><a id="try-example" hidden>Open an example timeout</a><a href="#history">Browse saved runs</a><a href="#judge">Run your own prompt</a></div>
+      <p><a href="/replay/index.html">Explore the offline relay replay</a></p>
       <p class="muted">Trying this with a teammate? Let them do the steps without coaching. Ask where the run failed and what their retry would change.</p>
     </section>
   </div>

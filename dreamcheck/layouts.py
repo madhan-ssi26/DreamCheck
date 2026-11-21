@@ -14,7 +14,12 @@ HOLDOUT = {
     "holdout-far": (-0.004, -0.014),
 }
 WORKSHOP = {"workshop": (0.0, 0.0), "workshop-left": (-0.013, -0.006), "workshop-right": (0.013, 0.005)}
-LAYOUTS = {"stock": (0.0, 0.0), **WORKSHOP, **TRAIN, **HOLDOUT}
+RELAY_TRAIN = {f"relay-train-{index:02}": (x / 1000, y / 1000)
+               for index, (x, y) in enumerate((x, y) for x in range(-6, 7, 2) for y in range(-6, 7, 2))}
+RELAY_HOLDOUT = {f"relay-holdout-{index:02}": (x / 1000, y / 1000)
+                 for index, (x, y) in enumerate([(-7, -3), (-5, 1), (-3, 5), (-1, -5), (1, -1),
+                                                  (3, 3), (5, -3), (7, 1), (-5, -7), (5, 7)])}
+LAYOUTS = {"stock": (0.0, 0.0), **WORKSHOP, **TRAIN, **HOLDOUT, **RELAY_TRAIN, **RELAY_HOLDOUT}
 
 
 def scene_for_layout(layout):

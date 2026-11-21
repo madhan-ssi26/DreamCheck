@@ -40,8 +40,8 @@ def stopping_phase(run):
 
 def repair_plan(run_id):
     run = load_run(run_id)
-    if not run or run["mode"] != "live" or run["verdict"] != "task_timeout":
-        raise ValueError("Choose a saved Dream-1 timeout to test a fix.")
+    if not run or run["mode"] != "live" or run["verdict"] != "task_timeout" or run.get("task", "apple") not in TARGETS:
+        raise ValueError("Choose a saved Dream-1 fruit-placement timeout to test a fix.")
     phase = stopping_phase(run)
     task = run.get("task", "apple")
     prompt = run["prompt"]

@@ -8,6 +8,8 @@ Each pair starts from the same layout. The scheduler alternates which setting go
 
 For a built-in live timeout, **Test a fix** suggests one instruction based on pickup, transport, or release. Review and edit the suggestion, then choose the original scene or the three-scene suite.
 
+Start with one layout and one repeat to check that the prompts and model IDs are correct. Increase repeats once both settings are producing valid verdicts. The two-arm relay uses the separate [held-out evaluation workflow](../training/README.md#two-arm-relay).
+
 ## Interpret and export
 
 - Review the matched pass tally and the trial count together. Failed API calls and canceled trials are excluded from the matched pass denominator. A physical timeout counts as a failed attempt.

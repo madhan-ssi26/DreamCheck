@@ -2,6 +2,8 @@
 
 Start with the [project README](../README.md) for installation and the browser walkthrough. Each component guide describes where to start, what it measures, and where its outputs go.
 
+The [two-minute user guide](docs/TWO_MINUTE_GUIDE.md) includes a clickable reference replay.
+
 | Component | Implementation | Guide |
 | --- | --- | --- |
 | Local HTTP and CLI | `__main__.py` | [Setup and operations](docs/setup/README.md) |
@@ -10,6 +12,7 @@ Start with the [project README](../README.md) for installation and the browser w
 | Portable MJCF | `scenes.py` | [Scene import](docs/scenes/README.md) |
 | Recorded episodes | `recording.py` | [Recording import](docs/recordings/README.md) |
 | Collection and checkpoint evaluation | `training.py` | [Fine-tuning](docs/training/README.md) |
+| Two-arm relay and sorting reference | `relay.py`, `sorting.py` | [Bimanual protocol](docs/training/BIMANUAL_PROTOCOL.md) |
 | Browser interface | `web/` | [Frontend](web/README.md) |
 
 ## Runtime

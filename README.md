@@ -2,7 +2,9 @@
 
 DreamCheck helps Dream-1 users see where a robot task failed, test one change from the same starting scene, and share the evidence. It runs locally with the YAM MuJoCo simulator. No physical robot is required.
 
-[![Judge shows the simulator, reference action timeline, and a passing task verdict](dreamcheck/docs/images/judge.webp)](dreamcheck/docs/judge/README.md)
+[![DreamCheck Home with the Workshop simulator and links to Judge, Import, and Compare](dreamcheck/docs/images/home.webp)](dreamcheck/docs/TWO_MINUTE_GUIDE.md)
+
+[Two-minute new-user guide](dreamcheck/docs/TWO_MINUTE_GUIDE.md) · [Interactive relay replay on localhost](http://127.0.0.1:8765/replay/index.html)
 
 | Workspace | What you can do |
 | --- | --- |
@@ -24,13 +26,22 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m dreamcheck serve
 ```
 
-Open [DreamCheck on localhost](http://127.0.0.1:8765/), choose **Run a scene**, then select **Run scripted reference** in Judge. Watch the arm place the fruit in the bowl and open the saved evidence. This workflow works without a Dream Labs account.
+Open [DreamCheck on localhost](http://127.0.0.1:8765/), choose **Open Judge**, then select **Run scripted reference**. Watch the robot complete the task and inspect the saved evidence. This workflow needs no Dream Labs account. The [two-minute guide](dreamcheck/docs/TWO_MINUTE_GUIDE.md) walks through the two-arm relay.
 
 For live inference, configure a Dream Labs API key using the [YAM credentials guide](dream_library/examples/yam_mujoco/README.md). Restart the server if you changed the environment after starting it. In Judge, select **Load demo prompt**, then **Run Dream-1**. Live inference uses account credits.
 
 The [setup and troubleshooting guide](dreamcheck/docs/setup/README.md) covers the CLI, credential lookup, port conflicts, and local data. The [developer guide](dreamcheck/README.md) maps the source code, browser modules, and test commands.
 
 ## Visual walkthrough
+
+<details>
+<summary>Inspect the two-arm relay in Judge</summary>
+
+![Completed scripted relay with camera evidence and a physical verdict](dreamcheck/docs/images/relay-judge.webp)
+
+The left arm stages the apple on a plate. The right arm picks it up and places it in the bowl. Explore the [four collapsible stages](dreamcheck/docs/TWO_MINUTE_GUIDE.md#click-through-the-same-example-on-github).
+
+</details>
 
 <details>
 <summary>Compare two prompts on matched layouts</summary>
@@ -63,7 +74,7 @@ Pause or seek on the timeline, then choose **Mark the failure moment**. Export t
 
 DreamCheck is a single-user workstation app bound to IPv4 loopback. Import packages and recordings from sources you trust. A browser can view saved runs by opening a link on the same workstation. To share evidence across machines, export it from the appropriate workspace.
 
-The built-in judge scores apple and orange placement. Imported scenes require YAM-compatible controls. Recording import supports LeRobot v2.1 Parquet and matching MP4 files. Fine-tuning submission and checkpoint serving depend on the Dream Labs account and platform.
+The built-in judge scores apple and orange placement and a two-arm apple relay through a transfer plate. Imported scenes require YAM-compatible controls. Recording import supports LeRobot v2.1 Parquet and matching MP4 files. Fine-tuning submission and checkpoint serving depend on the Dream Labs account and platform.
 
 ## Upstream and license
 

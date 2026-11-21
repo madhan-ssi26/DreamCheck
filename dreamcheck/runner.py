@@ -1,5 +1,6 @@
 """Run Dream-1 in the simulator and save the evidence used to judge the task."""
 
+import base64
 import io
 import json
 import re
@@ -11,8 +12,9 @@ from datetime import datetime, timezone
 from math import dist
 from pathlib import Path
 
-from .diagnostics import summarize_chunk
+from .diagnostics import api_failure, summarize_chunk
 from .layouts import LAYOUTS, place_target, scene_for_layout
+from .relay import PROMPT as RELAY_PROMPT, RelayScorer, relay_reference, setup_relay
 from .scoring import TARGETS, TaskScorer
 from .scenes import SCENE_ID, ImportedScene, RegionGoal, scene_metadata, scene_path, validate_goal
 
@@ -138,10 +140,10 @@ class RunManager:
             if parent:
                 task = parent.get("task", "apple")
                 goal = parent.get("region_goal")
-            if task not in TARGETS and not (parent and task == "imported"):
-                raise ValueError("Choose apple or orange into the bowl.")
+            if task not in (*TARGETS, "relay") and not (parent and task == "imported"):
+                raise ValueError("Choose apple, orange, or the two-arm relay.")
             if reference:
-                prompt = f"Put {task} into the bowl (scripted reference)"
+                prompt = RELAY_PROMPT if task == "relay" else f"Put {task} into the bowl (scripted reference)"
             previous_actions = parent.get("actions_per_chunk", DEFAULT_ACTIONS) if parent else DEFAULT_ACTIONS
             if shorter:
                 if not parent or parent["mode"] != "live" or previous_actions <= 1:
@@ -209,7 +211,8 @@ class RunManager:
         started = time.monotonic()
         fixture = result["mode"] == "offline fixture"
         reference = result["mode"] == "scripted reference"
-        target = result["task"]
+        relay = result["task"] == "relay"
+        target = "apple" if relay else result["task"]
         imported = target == "imported"
         observed_steps = 0
         env = None
@@ -220,6 +223,7 @@ class RunManager:
         bowl_position = None
         peak_lift = 0.0
         peak_views = None
+        request_inputs = {}
 
         def with_overview(frames):
             if "overview" not in frames:
@@ -246,7 +250,7 @@ class RunManager:
                 last_position = scene.data.body(target).xpos.tolist()
                 bowl_position = scene.data.body("bowl").xpos.tolist()
                 result["initial_target_position"] = last_position
-                scorer = TaskScorer(scene, last_position[2], target)
+                scorer = RelayScorer(scene, last_position[2]) if relay else TaskScorer(scene, last_position[2], target)
             elif result["region_goal"]:
                 region = RegionGoal(scene, result["region_goal"])
             last_views = scene.images()
@@ -327,6 +331,34 @@ class RunManager:
         def on_chunk(reply, applied, executed, rtt):
             record_segment(summarize_chunk(reply, applied, executed, rtt))
 
+        def on_request(windows):
+            from PIL import Image
+
+            inputs = dict(request_inputs)
+            if tuple(windows) != tuple(camera["key"] for camera in inputs.get("cameras", [])):
+                cameras = []
+                for index, (key, window) in enumerate(windows.items()):
+                    sample = base64.b64decode(window[-1], validate=True)
+                    with Image.open(io.BytesIO(sample)) as image:
+                        width, height = image.size
+                    (output / f"policy-camera-{index}.jpg").write_bytes(sample)
+                    cameras.append({"key": key, "frames": len(window), "width": width, "height": height})
+                inputs["cameras"] = cameras
+                inputs["snapshot_attempt"] = inputs.get("attempts", 0) + 1
+            inputs.setdefault("first_request_after_ms", round((time.monotonic() - started) * 1000))
+            inputs["attempts"] = inputs.get("attempts", 0) + 1
+            request_inputs.update(inputs)
+            result["request_inputs"] = inputs
+            publish("waiting")
+
+        def on_reply(rtt):
+            inputs = dict(request_inputs)
+            inputs.setdefault("first_reply_ms", round((time.monotonic() - started) * 1000))
+            inputs.setdefault("first_successful_request_rtt_ms", round(rtt * 1000))
+            inputs["replies"] = inputs.get("replies", 0) + 1
+            request_inputs.update(inputs)
+            result["request_inputs"] = inputs
+
         try:
             sim_imports()
             from dream_control import main as run_task, settings
@@ -340,7 +372,10 @@ class RunManager:
                 env = ImportedScene(scene_path(result["layout_id"]).read_bytes())
             else:
                 env = YamEnv(result["scene"])
-                place_target(env, result["layout_id"], target)
+                if relay:
+                    setup_relay(env, LAYOUTS[result["layout_id"]])
+                else:
+                    place_target(env, result["layout_id"], target)
             if fixture or reference:
                 for _ in range(30 if reference else 8):
                     state = env.state()
@@ -350,7 +385,8 @@ class RunManager:
                     from .reference import fruit_to_bowl
 
                     phase_steps = 0
-                    for phase, last_step in fruit_to_bowl(env, target):
+                    trajectory = relay_reference(env) if relay else fruit_to_bowl(env, target)
+                    for phase, last_step in trajectory:
                         if stop_event.is_set():
                             break
                         tick = time.monotonic()
@@ -384,26 +420,26 @@ class RunManager:
                           "--seconds", str(result["seconds_limit"]), "--actions", str(result["actions_per_chunk"]),
                           "--policy-hz", str(result["policy_hz"]), "--headless", "--quiet"],
                          shared_env=env, on_step=on_step, on_wait=on_wait, on_chunk=on_chunk, embodiment=embodiment,
-                         stop_event=stop_event)
+                         stop_event=stop_event, on_request=on_request, on_reply=on_reply)
                 if not stop_event.is_set() and not observed_steps:
                     result.update(verdict="api_error", error="No model actions executed before the deadline.")
             completed = "unscored" if imported and region is None else "task_timeout"
             result["verdict"] = result["verdict"] or ("canceled" if stop_event.is_set() else completed)
             if result["verdict"] == "task_timeout" and result["mode"] == "live" and "checks" in result:
-                result["failure_phase"], result["diagnosis"] = diagnose_timeout(result)
+                if relay:
+                    result["failure_phase"] = next((stage for stage in ("left_pickup", "transfer", "right_pickup", "settled")
+                                                    if not result["checks"][stage]), None)
+                else:
+                    result["failure_phase"], result["diagnosis"] = diagnose_timeout(result)
         except (Exception, SystemExit) as exc:
             name = type(exc).__name__
-            reason = getattr(exc, "reason", None)
             result["verdict"] = "api_error" if name.startswith("Dream") or isinstance(exc, SystemExit) else "sim_error"
-            result["error"] = {
-                "DreamAuthError": "Dream-1 rejected the configured API key.",
-                "DreamTimeout": "Dream-1 did not reply before the request deadline.",
-                "CheckpointError": str(exc),
-            }.get(name, f"Run stopped ({name}). Check the simulator or Dream-1 connection.")
             if name == "CheckpointError":
-                result["verdict"] = "api_error"
-            if reason == "pool_warming":
-                result["error"] = "Dream Labs is warming this checkpoint. Retry when it is serving."
+                result.update(verdict="api_error", error=str(exc))
+            elif result["verdict"] == "api_error":
+                result["error"], result["api_error"] = api_failure(exc)
+            else:
+                result["error"] = f"Run stopped ({name}). Check the simulator or Dream-1 connection."
         finally:
             result["elapsed_seconds"] = round(time.monotonic() - started, 2)
             try:

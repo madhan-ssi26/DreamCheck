@@ -2,6 +2,8 @@
 
 Follow the [quick start](../../../README.md) from the repository root. The local checkout supplies the patched simulator and its assets. Keep `dreamcheck/`, `dream_library/`, `shared/`, and `assets/` together when distributing it. The app runs directly from the checkout.
 
+After installation, follow the [two-minute offline guide](../TWO_MINUTE_GUIDE.md). Its localhost links assume the default port, `8765`.
+
 PowerShell activation is optional. Use `.\.venv\Scripts\Activate.ps1` to make `python` point to the virtual environment, or invoke `.\.venv\Scripts\python.exe` directly. On macOS or Linux the virtual environment interpreter is `.venv/bin/python`. Rendering support outside Windows depends on the local MuJoCo/OpenGL backend.
 
 ## Live credentials
@@ -25,7 +27,7 @@ Use `run --help` for valid options. The CLI writes a JSON result. API and simula
 
 | Location | Data |
 | --- | --- |
-| `.dreamcheck/runs/` | Run JSON, final and per-response camera JPEGs, and any peak-lift images. |
+| `.dreamcheck/runs/` | Run JSON, final and per-response camera JPEGs, peak-lift images, and prepared policy camera samples when available. |
 | `.dreamcheck/comparisons/` | Comparison settings, paired outcomes, and links to run IDs. |
 | `.dreamcheck/scenes/` | Accepted scene ZIPs and saved preview images. |
 | `.dreamcheck/training/` | Demonstration bundles, manifests, and checkpoint evaluation reports. |

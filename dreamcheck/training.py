@@ -6,8 +6,9 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .layouts import HOLDOUT, LAYOUTS, TRAIN, place_apple
+from .layouts import HOLDOUT, LAYOUTS, RELAY_HOLDOUT, RELAY_TRAIN, TRAIN, place_apple
 from .reference import apple_to_bowl
+from .relay import PROMPT as RELAY_PROMPT, RelayScorer, relay_reference, setup_relay
 from .runner import ROOT, sim_imports
 from .scoring import TaskScorer
 
@@ -24,13 +25,16 @@ EMBODIMENT = {"state": PARTS, "action": PARTS,
 def latest_training():
     manifests = sorted(OUTPUT.glob("*/manifest.json"), reverse=True)
     evaluations = sorted(OUTPUT.glob("evaluation-*.json"), reverse=True)
-    result = {"bundle": None, "evaluation": None}
+    baselines = sorted(OUTPUT.glob("baseline-*.json"), reverse=True)
+    result = {"bundle": None, "evaluation": None, "baseline": None}
     if manifests:
         path = manifests[0]
         result["bundle"] = json.loads(path.read_text(encoding="utf-8"))
         result["bundle"]["id"] = path.parent.name
     if evaluations:
         result["evaluation"] = json.loads(evaluations[0].read_text(encoding="utf-8"))
+    if baselines:
+        result["baseline"] = json.loads(baselines[0].read_text(encoding="utf-8"))
     return result
 
 
@@ -54,7 +58,7 @@ def checkpoint_record(model):
         return record
 
 
-def record_episode(root, layout):
+def record_episode(root, layout, task="apple"):
     import av
     import numpy as np
     from PIL import Image
@@ -67,11 +71,16 @@ def record_episode(root, layout):
     root.mkdir()
     env = YamEnv()
     try:
-        place_apple(env, layout)
+        relay = task == "relay"
+        if relay:
+            setup_relay(env, LAYOUTS[layout])
+        else:
+            place_apple(env, layout)
         for _ in range(30):
             state = env.state()
             env.step(state["left"], state["right"])
-        scorer = TaskScorer(env, env.data.body("apple").xpos[2])
+        scorer_type = RelayScorer if relay else TaskScorer
+        scorer = scorer_type(env, env.data.body("apple").xpos[2])
         stats = None
         count = 0
         with ExitStack() as stack:
@@ -101,7 +110,8 @@ def record_episode(root, layout):
                            dtype=np.float64).tofile(journal)
                 count += 1
 
-            for _phase, _end in apple_to_bowl(env, action_hold=2, on_action=capture):
+            trajectory = relay_reference if relay else apple_to_bowl
+            for _phase, _end in trajectory(env, action_hold=2, on_action=capture):
                 stats = scorer.observe()
                 if stats["verdict"] == "passed":
                     break
@@ -109,7 +119,7 @@ def record_episode(root, layout):
                 video.mux(stream.encode(None))
         passed = bool(stats and stats["verdict"] == "passed")
         (root / "rollout.json").write_text(json.dumps({
-            "body": BODY_NAME, "task": TASK, "fps": FPS, "cameras": list(ROLES.values()),
+            "body": BODY_NAME, "task": RELAY_PROMPT if relay else TASK, "fps": FPS, "cameras": list(ROLES.values()),
             "source": "scripted MuJoCo reference", "layout": layout, "physical_pass": passed,
         }), encoding="utf-8")
         info = rollout_episode.finish(root, status="complete" if passed else "partial", stop_reason="judge")
@@ -120,7 +130,7 @@ def record_episode(root, layout):
         env.close()
 
 
-def prepare():
+def prepare(task="apple"):
     from dream.datasets import validate_dataset
 
     OUTPUT.mkdir(parents=True, exist_ok=True)
@@ -129,11 +139,12 @@ def prepare():
     for name in ("train", "holdout", "rejected", "staging"):
         (root / name).mkdir(parents=True)
     attempts = []
-    for split, layouts in (("train", TRAIN), ("holdout", HOLDOUT)):
+    relay = task == "relay"
+    for split, layouts in (("train", RELAY_TRAIN if relay else TRAIN), ("holdout", RELAY_HOLDOUT if relay else HOLDOUT)):
         for layout in layouts:
             episode = root / "staging" / layout
             try:
-                result = record_episode(episode, layout)
+                result = record_episode(episode, layout, task)
             except (RuntimeError, ValueError) as error:
                 result = {"layout": layout, "passed": False, "error": str(error)}
             destination = split if result["passed"] else "rejected"
@@ -143,9 +154,11 @@ def prepare():
             print(f"{layout}: {destination} ({result.get('frames', 0)} frames)", flush=True)
     root.joinpath("staging").rmdir()
     reports = {split: asdict(validate_dataset(str(root / split), EMBODIMENT)) for split in ("train", "holdout")}
-    manifest = {"source": "scripted MuJoCo reference", "task": TASK, "embodiment": EMBODIMENT,
+    manifest = {"source": "scripted MuJoCo reference", "task": RELAY_PROMPT if relay else TASK, "embodiment": EMBODIMENT,
                 "sample_rate_hz": FPS, "attempts": attempts, "validation": reports}
     root.joinpath("manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    if relay and sum(entry["split"] == "train" for entry in attempts) < 40:
+        raise ValueError("Relay training requires at least 40 accepted demonstrations. Inspect the bundle manifest.")
     return root, manifest
 
 
@@ -156,6 +169,11 @@ def upload(root: Path, name):
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     if manifest["embodiment"] != EMBODIMENT or not all(report["ok"] for report in manifest["validation"].values()):
         raise ValueError("Prepare a validated YAM training bundle first.")
+    if manifest["task"] == RELAY_PROMPT:
+        counts = {split: sum(entry["split"] == split and entry["passed"] for entry in manifest["attempts"])
+                  for split in ("train", "holdout")}
+        if counts["train"] < 40 or counts["holdout"] < 8:
+            raise ValueError("Relay upload requires 40 successful training episodes and 8 successful holdout episodes.")
     with DreamClient() as client:
         report = validate_dataset(str(root / "train"), EMBODIMENT)
         if not report.ok:
@@ -197,41 +215,85 @@ def queue_training(dataset_id, suffix, steps):
             raise ValueError(f"Dataset is {dataset.status}; wait for processed before training.")
         if dataset.embodiment.rsplit("/", 1)[-1] != BODY_NAME:
             raise ValueError("Choose the processed DreamCheck YAM training dataset.")
-        return client.finetune(dataset.name, suffix, steps=steps, lr_schedule="cosine", base_share=0.5)
+        job = client.finetune(dataset.name, suffix, steps=steps, lr_schedule="cosine", base_share=0.5)
+    for path in sorted(OUTPUT.glob("*/manifest.json"), reverse=True):
+        try:
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+            if manifest.get("upload", {}).get("id") != dataset_id:
+                continue
+            manifest["job"] = {"id": job["id"]}
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+            temporary.replace(path)
+            break
+        except (OSError, ValueError):
+            continue
+    return job
 
 
-def evaluate(model, repeats, seconds):
+def evaluate(model, repeats, seconds, task="apple", *, baseline=None, base_model=None):
     from .runner import RunManager
 
-    if not isinstance(model, str) or not model.startswith("dream-1-ft:"):
-        raise ValueError("Choose a published fine-tuned checkpoint ID (dream-1-ft:…).")
     if not 1 <= repeats <= 5 or not 15 <= seconds <= 120:
         raise ValueError("Choose 1–5 repeats per layout and a 15–120 second time limit.")
-    trained = checkpoint_record(model)
+    baseline_only = model is None
+    if baseline_only:
+        if not base_model or baseline is not None:
+            raise ValueError("Choose the base checkpoint for the baseline run.")
+        models = {"base": base_model}
+    else:
+        if not isinstance(model, str) or not model.startswith("dream-1-ft:"):
+            raise ValueError("Choose a published fine-tuned checkpoint ID (dream-1-ft:…).")
+        models = {"base": checkpoint_record(model).base_model, "fine_tuned": model}
     manager = RunManager()
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    path = OUTPUT / f"evaluation-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S-%f')}.json"
-    models = {"base": trained.base_model, "fine_tuned": model}
-    report = {"models": models, "prompt": TASK, "layouts": list(HOLDOUT), "repeats": repeats,
-              "seconds_limit": seconds, "simulated_seconds_per_request": 1.2, "pairs": [], "status": "running"}
+    prefix = "baseline" if baseline_only else "evaluation"
+    path = OUTPUT / f"{prefix}-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S-%f')}.json"
+    layouts, prompt = (RELAY_HOLDOUT, RELAY_PROMPT) if task == "relay" else (HOLDOUT, TASK)
+    protocol = {"task": task, "prompt": prompt, "layouts": list(layouts), "repeats": repeats,
+                "seconds_limit": seconds, "simulated_seconds_per_request": 1.2}
+    report = {"models": models, **protocol, "pairs": [], "status": "running"}
+    saved_pairs = {}
+    if baseline is not None:
+        try:
+            saved = json.loads(baseline.read_text(encoding="utf-8"))
+            if (saved["status"] != "complete" or saved["models"] != {"base": models["base"]}
+                    or any(saved.get(key) != value for key, value in protocol.items())):
+                raise ValueError
+            saved_pairs = {(pair["layout"], pair["repeat"]): pair["runs"]["base"] for pair in saved["pairs"]}
+            expected = {(layout, repeat) for layout in layouts for repeat in range(1, repeats + 1)}
+            if (len(saved["pairs"]) != len(expected) or saved_pairs.keys() != expected
+                    or any(run["verdict"] not in {"passed", "task_timeout"} for run in saved_pairs.values())):
+                raise ValueError
+        except (ValueError, OSError, KeyError, TypeError) as exc:
+            raise ValueError("Use a complete baseline report with the same base checkpoint, task, layouts, repeats and time limit.") from exc
+        report["baseline_source"] = str(baseline.resolve())
+        report["order"] = "base collected before fine-tuned runs"
 
     def save():
         temporary = path.with_suffix(".tmp")
         temporary.write_text(json.dumps(report, indent=2), encoding="utf-8")
         temporary.replace(path)
 
+    save()
     for repetition in range(1, repeats + 1):
-        for index, layout in enumerate(HOLDOUT):
+        for index, layout in enumerate(layouts):
             pair = {"layout": layout, "repeat": repetition, "runs": {}}
             report["pairs"].append(pair)
-            order = ("fine_tuned", "base") if (index + repetition) % 2 else ("base", "fine_tuned")
+            if saved_pairs:
+                pair["runs"]["base"] = saved_pairs[(layout, repetition)]
+                order = ("fine_tuned",)
+            elif baseline_only:
+                order = ("base",)
+            else:
+                order = ("fine_tuned", "base") if (index + repetition) % 2 else ("base", "fine_tuned")
             for name in order:
-                manager.start(TASK, model=models[name], layout_id=layout,
+                manager.start(prompt, model=models[name], layout_id=layout, task=task,
                               actions=12 if name == "fine_tuned" else 24, seconds=seconds)
                 manager.thread.join()
                 run = manager.last_result
                 pair["runs"][name] = {key: run.get(key) for key in
-                                      ("run_id", "verdict", "milestone", "checks", "elapsed_seconds", "error")}
+                                      ("run_id", "verdict", "milestone", "checks", "failure_phase", "elapsed_seconds", "error")}
                 print(f"{layout} repeat {repetition} {name}: {run['verdict']} ({run['run_id']})", flush=True)
                 if run["verdict"] not in {"passed", "task_timeout"}:
                     report["status"] = "interrupted"

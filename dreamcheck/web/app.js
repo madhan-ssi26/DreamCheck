@@ -10,8 +10,13 @@ const demoPrompt = 'Pick up the red apple with the arm closest to it. Grasp from
 const demoPromptFor = (task) => task === 'orange'
   ? 'Pick up the orange, carry it over the center of the bowl, lower it just inside the rim, then open the gripper and lift away.'
   : demoPrompt;
-const defaultPrompt = (task) => `put ${task} into the bowl`;
+const defaultPrompt = (task) => task === 'relay'
+  ? 'Use the left arm to put the apple on the transfer plate, then use the right arm to pick it up from the plate and place it in the bowl.'
+  : `put ${task} into the bowl`;
 const taskName = (run) => run?.task ?? 'apple';
+function addRelayLayout(id) {
+  if (/^relay-(holdout|train)-\d{2}$/.test(id)) window.addSceneOption(id, id.replaceAll('-', ' '));
+}
 const modeLabels = {live: 'Dream-1 live', 'scripted reference': 'Scripted reference', 'offline fixture': 'Offline fixture'};
 const escapeText = (text) => String(text ?? '').replace(/[&<>"']/g, (character) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -95,8 +100,37 @@ function comparisonRow(run, label) {
     <td>${measured ? `${totals.lift} mm` : '—'}</td></tr>`;
 }
 
+function renderPolicyInputs(run) {
+  const inputs = run?.request_inputs;
+  el('policy-inputs').hidden = !inputs?.cameras?.length;
+  el('open-policy-inputs').hidden = el('policy-inputs').hidden;
+  if (el('policy-inputs').hidden) return;
+  const seconds = (ms) => `${(ms / 1000).toFixed(2)} s`;
+  const firstReply = inputs.first_reply_ms == null
+    ? (run.verdict ? 'No successful policy reply' : 'Waiting for first policy reply')
+    : `First reply at ${seconds(inputs.first_reply_ms)} (${seconds(inputs.first_successful_request_rtt_ms)} request round trip)`;
+  el('policy-timing').textContent = `First request prepared at ${seconds(inputs.first_request_after_ms)} · ${firstReply} · ${inputs.replies ?? 0}/${inputs.attempts} replies`;
+  const container = el('policy-frames');
+  const key = `${run.run_id}/${inputs.snapshot_attempt}`;
+  if (container.dataset.snapshot === key) return;
+  container.dataset.snapshot = key;
+  container.replaceChildren(...inputs.cameras.map((camera, index) => {
+    const card = document.createElement('figure');
+    const image = document.createElement('img');
+    const query = new URLSearchParams({run_id: run.run_id, index, snapshot: inputs.snapshot_attempt});
+    image.src = `/api/policy-camera?${query}`;
+    image.alt = `Prepared frame for ${camera.key}`;
+    image.loading = 'lazy';
+    const caption = document.createElement('figcaption');
+    caption.textContent = `${camera.key} · ${camera.frames} frames · ${camera.width} × ${camera.height}`;
+    card.append(image, caption);
+    return card;
+  }));
+}
+
 function renderResult() {
   const run = activeRun();
+  renderPolicyInputs(run);
   const previous = reviewed ? reviewed.previous : state.current ? null : state.previous_result;
   el('result').hidden = !run;
   if (!run) return;
@@ -104,6 +138,9 @@ function renderResult() {
   el('result-title').textContent = run.verdict === 'passed' ? run.milestone : verdicts[run.verdict] ?? 'Run in progress';
   el('result-mode').textContent = modeLabels[run.mode] ?? '';
   el('result-detail').textContent = run.error || run.fixture_note || run.diagnosis || run.milestone;
+  if (run.api_error?.code) {
+    el('result-detail').textContent += ` (${run.api_error.code}${run.api_error.reason ? ` · ${run.api_error.reason}` : ''})`;
+  }
   if (run.verdict === 'unscored') el('result-detail').textContent = 'Inspect camera and joint evidence. This scene has no automatic goal rule.';
   if (run.region_goal && run.region_progress && !run.error) {
     const progress = run.region_progress;
@@ -119,12 +156,16 @@ function renderResult() {
     reached_bowl: run.milestone?.endsWith('reached the bowl') || run.verdict === 'passed',
     settled: run.verdict === 'passed',
   };
+  const relay = run.task === 'relay';
+  const stages = relay ? ['left_pickup', 'transfer', 'settled'] : ['lifted', 'reached_bowl', 'settled'];
+  const labels = relay ? ['Left pickup', 'Plate transfer', 'Right placement'] : ['Lifted', 'Reached bowl', 'Settled in bowl'];
   [...el('stages').children].forEach((stage, index) => {
-    stage.dataset.reached = Boolean(observed[['lifted', 'reached_bowl', 'settled'][index]]);
+    stage.dataset.reached = Boolean(observed[stages[index]]);
+    stage.textContent = labels[index];
   });
   el('retry-controls').hidden = (!reviewed && Boolean(state.current)) || run.mode !== 'live';
-  el('compare-from-run').hidden = !run.verdict || run.scene === 'imported' || run.model !== 'dreamlabs/dream-1-beta';
-  el('test-fix').hidden = run.mode !== 'live' || run.verdict !== 'task_timeout' || run.scene === 'imported';
+  el('compare-from-run').hidden = !run.verdict || relay || run.scene === 'imported' || run.model !== 'dreamlabs/dream-1-beta';
+  el('test-fix').hidden = run.mode !== 'live' || run.verdict !== 'task_timeout' || relay || run.scene === 'imported';
   el('repair-error').hidden = repairError?.runId !== run.run_id;
   el('repair-error').textContent = repairError?.runId === run.run_id ? repairError.message : '';
   el('shorter').hidden = run.mode !== 'live' || run.verdict === 'api_error' || (run.actions_per_chunk ?? 48) <= 1;
@@ -264,7 +305,16 @@ async function startRun({reference = false, retry = false, shorter = false} = {}
 
 function renderHistory() {
   const recent = state.recent ?? [];
-  const example = state.benchmark?.repair?.source_run ?? recent.find((run) => run.mode === 'live' && run.verdict === 'task_timeout')?.run_id;
+  const latest = recent[0];
+  el('home-recent').hidden = !latest;
+  if (latest && el('home-run').dataset.id !== latest.run_id) {
+    const link = el('home-run');
+    link.dataset.id = latest.run_id;
+    link.href = `/?run=${encodeURIComponent(latest.run_id)}#judge`;
+    link.textContent = `${latest.prompt} · ${latest.verdict === 'passed' ? 'Passed' : verdicts[latest.verdict] ?? latest.verdict} ↗`;
+  }
+  const example = state.benchmark?.repair?.source_run ?? recent.find((run) =>
+    run.mode === 'live' && run.verdict === 'task_timeout' && ['apple', 'orange'].includes(taskName(run)))?.run_id;
   el('try-example').hidden = !example;
   if (example) el('try-example').href = `/?run=${encodeURIComponent(example)}#judge`;
   el('latest').hidden = !reviewed;
@@ -329,6 +379,13 @@ el('camera').onload = () => {
   el('camera').hidden = false;
   el('camera-placeholder').hidden = true;
 };
+el('open-policy-inputs').onclick = () => {
+  const details = el('policy-inputs');
+  details.open = true;
+  const summary = details.querySelector('summary');
+  summary.focus({preventScroll: true});
+  summary.scrollIntoView({block: 'center'});
+};
 el('camera').onerror = () => {
   el('camera').hidden = true;
   el('camera-placeholder').hidden = false;
@@ -339,7 +396,11 @@ el('actions').oninput = () => {
   el('cadence').textContent = Number.isFinite(actions) ? `Up to ${(actions / rate).toFixed(2)} s of simulated motion per response` : '';
 };
 el('model').oninput = el('actions').oninput;
-el('goal').onchange = () => { el('prompt').value = defaultPrompt(el('goal').value); };
+el('goal').onchange = () => {
+  const task = el('goal').value;
+  el('prompt').value = defaultPrompt(task);
+  if (task === 'relay' && el('seconds').valueAsNumber < 90) el('seconds').value = '90';
+};
 el('layout').onchange = () => {
   const value = el('layout').value;
   const imported = value.startsWith('imported-');
@@ -453,6 +514,7 @@ async function reviewRun(runId, navigate = false) {
       window.addSceneOption(reviewed.run.layout_id, reviewed.run.scene_name ?? 'Imported scene');
       importedGoals.set(reviewed.run.layout_id, reviewed.run.region_goal ?? null);
     }
+    if (reviewed.run.task === 'relay') addRelayLayout(reviewed.run.layout_id);
     el('layout').value = reviewed.run.layout_id ?? 'stock';
     if (!el('layout').value) el('layout').value = 'stock';
     if (reviewed.run.mode === 'live') {
@@ -497,7 +559,7 @@ async function loadTraining() {
   try {
     const response = await fetch('/api/training');
     if (!response.ok) throw Error('Could not load training exports.');
-    const {bundle, evaluation} = await response.json();
+    const {bundle, evaluation, baseline} = await response.json();
     trainingBundle = bundle;
     if (!bundle) {
       el('training-empty').textContent = 'Create a dataset with python -m dreamcheck train prepare.';
@@ -505,6 +567,7 @@ async function loadTraining() {
       return;
     }
     el('training-empty').hidden = true;
+    el('training-task').textContent = bundle.task;
     const {train, holdout} = bundle.validation;
     el('training-state').textContent = train.ok && holdout.ok ? 'Validated by Dream Labs SDK' : 'Validation failed';
     el('training-counts').textContent = `${train.episodes} training episodes · ${holdout.episodes} held out · ${bundle.sample_rate_hz} Hz · 3 cameras`;
@@ -516,6 +579,17 @@ async function loadTraining() {
     el('training-upload').textContent = bundle.upload
       ? `Uploaded training split · ${bundle.upload.id}` : 'The validated training split is ready to upload.';
     el('dataset-status').hidden = !bundle.upload;
+    if (bundle.job?.id && !el('training-job').value) el('training-job').value = bundle.job.id;
+    el('baseline-card').hidden = !baseline;
+    if (baseline) {
+      const trials = baseline.pairs.map((pair) => pair.runs.base).filter(Boolean);
+      const scored = trials.filter((run) => ['passed', 'task_timeout'].includes(run.verdict));
+      const total = baseline.layouts.length * baseline.repeats;
+      el('baseline-summary').textContent = `${scored.length}/${total} valid trials · ${scored.filter((run) => run.verdict === 'passed').length} passes · ${baseline.status}`;
+      const last = trials.at(-1);
+      el('baseline-run').hidden = !last?.run_id;
+      if (last?.run_id) el('baseline-run').href = `/?run=${encodeURIComponent(last.run_id)}#judge`;
+    }
     if (evaluation) {
       el('evaluation-summary').textContent = evaluation.status === 'complete'
         ? `The latest comparison scored ${evaluation.passes.base}/${evaluation.pairs.length} for the base model and ${evaluation.passes.fine_tuned}/${evaluation.pairs.length} for the fine-tune.`
@@ -540,7 +614,16 @@ async function checkTraining(kind, id) {
     if (!response.ok) throw Error(result.error);
     el('training-cloud').textContent = [result.status, result.progress?.phase, result.error, result.fine_tuned_model].filter(Boolean).join(' · ');
     if (kind === 'job') {
-      publishedCheckpoint = result.fine_tuned_model;
+      const progress = el('training-progress');
+      const step = result.progress?.step;
+      const total = result.progress?.total_steps ?? result.hyperparameters?.steps;
+      progress.hidden = !Number.isFinite(step) || !Number.isFinite(total) || total <= 0;
+      if (!progress.hidden) {
+        progress.max = total;
+        progress.value = step;
+        el('training-cloud').textContent += ` · ${step}/${total} steps`;
+      }
+      publishedCheckpoint = result.dataset === trainingBundle?.upload?.name ? result.fine_tuned_model : null;
       el('use-checkpoint').hidden = !publishedCheckpoint;
     }
   } catch (error) {
@@ -551,15 +634,20 @@ async function checkTraining(kind, id) {
 el('dataset-status').onclick = () => checkTraining('dataset', trainingBundle?.upload?.id);
 el('job-status').onclick = () => checkTraining('job', el('training-job').value.trim());
 el('use-checkpoint').onclick = () => {
+  const relay = trainingBundle.task === defaultPrompt('relay');
   el('model').value = publishedCheckpoint;
-  el('layout').value = 'holdout-left';
+  const layout = relay ? 'relay-holdout-00' : 'holdout-left';
+  addRelayLayout(layout);
+  el('layout').value = layout;
   el('layout').onchange();
+  el('goal').value = relay ? 'relay' : 'apple';
+  el('goal').onchange();
   el('prompt').value = trainingBundle.task;
-  el('goal').value = 'apple';
   el('actions').value = 12;
   el('actions').oninput();
   el('model').closest('details').open = true;
   window.openWorkspace?.('judge');
   el('prompt').focus();
 };
-loadTraining();
+el('baseline-refresh').onclick = loadTraining;
+window.refreshTraining = loadTraining;

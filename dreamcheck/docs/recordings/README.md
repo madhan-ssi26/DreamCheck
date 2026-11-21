@@ -17,3 +17,5 @@ Choose an episode. Each camera must have a matching MP4 episode filename under t
 The motion bars show the largest state change per sampled time window in recorded units. Select a bar to seek the video and inspect the observed state and recorded action. Different channels can use different units. The importer reviews historical data and leaves task judgment to the viewer.
 
 Pause the video and choose **Mark the failure moment**. Enter a short label and save. The bookmark reopens that camera and timestamp after you reselect the same unchanged folder in the same browser profile and URL. **Export evidence** saves one JSON containing a JPEG data URL, the nearest telemetry windows, and the prompt and checkpoint when available. The folder and camera streams stay on your machine.
+
+To try it with simulated data, run `python -m dreamcheck train prepare` and select one generated episode folder under the bundle's `holdout/` directory. The [training guide](../training/README.md) explains how the simulator records and validates that data.

@@ -337,7 +337,7 @@ class RunViewerSync:
 
 def main(
     argv=None, shared_env=None, shared_viewer=None, stop_event=None, collision_view=None, on_step=None,
-    *, on_wait=None, on_chunk=None, embodiment=None,
+    *, on_wait=None, on_chunk=None, embodiment=None, on_request=None, on_reply=None,
 ):
     """Run this module entry point.
     @param argv Optional command-line arguments.
@@ -348,6 +348,8 @@ def main(
     @param on_step Optional callback with environment and images after a step. A true return ends the run.
     @param on_wait Optional callback with the environment before each policy request.
     @param on_chunk Optional callback with the reply, bounded targets, executed row count and request RTT.
+    @param on_request Optional callback with the camera window keys and their frames.
+    @param on_reply Optional callback with the elapsed time of a successful policy response.
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", default="put apple into the bowl")
@@ -440,6 +442,8 @@ def main(
             while active():
                 if on_wait is not None:
                     on_wait(env)
+                if on_request is not None:
+                    on_request({frame_key(name, poses): window for name, window in windows.items()})
                 started = time.monotonic()
                 future = pool.submit(policy.get_action)
                 # Hold simulation time while inference is pending; keep the viewer responsive.
@@ -472,6 +476,8 @@ def main(
                     feed(policy, env, windows, args.task, args.model, steps, every=0, station=poses)
                     continue
                 restarts = 0
+                if on_reply is not None:
+                    on_reply(time.monotonic() - started)
                 if not active():
                     break
                 request_times.append(time.monotonic() - started)

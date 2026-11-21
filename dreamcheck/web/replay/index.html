@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Two-arm relay replay · DreamCheck</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="./replay.js" defer></script>
+</head>
+<body>
+  <main class="replay-page">
+    <a href="/#try">← DreamCheck quick guide</a>
+    <header class="page-heading"><div><h1>Two-arm relay replay</h1><p>Step through four saved frames from a scripted MuJoCo run. No API key is needed.</p></div></header>
+    <section aria-label="Relay stages">
+      <div class="replay-stages" aria-label="Choose a stage">
+        <button type="button" class="secondary" aria-pressed="true" data-frame="pickup" data-description="The left gripper lifts the apple clear of its starting surface.">Left pickup</button>
+        <button type="button" class="secondary" aria-pressed="false" data-frame="transfer" data-description="The apple rests on the transfer plate, clear of both grippers.">Plate transfer</button>
+        <button type="button" class="secondary" aria-pressed="false" data-frame="right-pickup" data-description="The right gripper lifts the apple from the plate.">Right pickup</button>
+        <button type="button" class="secondary" aria-pressed="false" data-frame="placement" data-description="The right gripper releases the apple into the bowl. The judge confirms it has settled.">Settled placement</button>
+      </div>
+      <figure>
+        <img id="replay-image" src="./pickup.webp" width="640" height="360" alt="The left gripper lifts the apple clear of its starting surface.">
+        <figcaption id="replay-description" aria-live="polite">The left gripper lifts the apple clear of its starting surface.</figcaption>
+      </figure>
+    </section>
+  </main>
+</body>
+</html>

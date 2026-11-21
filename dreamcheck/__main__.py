@@ -121,12 +121,13 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._send(json.dumps({"error": f"Dream Labs status request failed ({type(exc).__name__})."}), status=502)
         elif path == "/api/training-video":
-            from .training import HOLDOUT, OUTPUT, TRAIN, latest_training
+            from .training import OUTPUT, latest_training
 
             bundle = latest_training()["bundle"]
             layout = parse_qs(url.query).get("layout", [""])[0]
-            if bundle and layout in (TRAIN | HOLDOUT):
-                split = "train" if layout in TRAIN else "holdout"
+            split = next((entry["split"] for entry in bundle["attempts"] if entry["layout"] == layout
+                          and entry["split"] in {"train", "holdout"}), None) if bundle else None
+            if split:
                 video = OUTPUT / bundle["id"] / split / layout / "videos/chunk-000/observation.images.overhead/episode_000000.mp4"
                 if video.is_file():
                     self._send(video.read_bytes(), "video/mp4")
@@ -145,13 +146,28 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(image_path.read_bytes(), "image/jpeg")
             except FileNotFoundError:
                 self._send(b"", "image/jpeg", 204)
+        elif path == "/api/policy-camera":
+            query = parse_qs(url.query)
+            run_id = query.get("run_id", [""])[0]
+            index = query.get("index", [""])[0]
+            if RUN_ID.fullmatch(run_id) and index in {"0", "1", "2"}:
+                try:
+                    data = (RUNS_DIR / run_id / f"policy-camera-{index}.jpg").read_bytes()
+                except FileNotFoundError:
+                    pass
+                else:
+                    self._send(data, "image/jpeg")
+                    return
+            self._send("Camera sample not found", "text/plain", 404)
         else:
             file = WEB / ("index.html" if path == "/" else path.lstrip("/"))
             if not file.resolve().is_relative_to(WEB.resolve()) or not file.is_file():
                 self._send("Not found", "text/plain", 404)
                 return
-            content_type = {".html": "text/html", ".js": "text/javascript", ".css": "text/css"}.get(file.suffix, "text/plain")
-            content_type += "; charset=utf-8"
+            content_type = {".html": "text/html", ".js": "text/javascript", ".css": "text/css",
+                            ".webp": "image/webp"}.get(file.suffix, "text/plain")
+            if not content_type.startswith("image/"):
+                content_type += "; charset=utf-8"
             self._send(file.read_bytes(), content_type)
 
     def do_POST(self):
@@ -226,7 +242,7 @@ def main():
     run = sub.add_parser("run", help="Start one run and print its status")
     run.add_argument("--prompt")
     run.add_argument("--layout", default="stock")
-    run.add_argument("--task", choices=TARGETS, default="apple", help="Which fruit the judge scores")
+    run.add_argument("--task", choices=(*TARGETS, "relay"), default="apple", help="Which task the judge scores")
     modes = run.add_mutually_exclusive_group()
     modes.add_argument("--fixture", action="store_true", help="Run a static scene without Dream-1 inference")
     modes.add_argument("--reference", action="store_true", help="Run a scripted physics reference")
@@ -237,7 +253,8 @@ def main():
     run.add_argument("--model", help="Base or DreamCheck fine-tuned checkpoint ID")
     train = sub.add_parser("train", help="Prepare demonstrations, upload, and inspect fine-tuning jobs")
     stages = train.add_subparsers(dest="stage", required=True)
-    stages.add_parser("prepare", help="Generate and validate separated train and holdout datasets")
+    prepare = stages.add_parser("prepare", help="Generate and validate separated train and holdout datasets")
+    prepare.add_argument("--task", choices=("apple", "relay"), default="apple")
     upload = stages.add_parser("upload", help="Register the YAM body and upload the train split")
     upload.add_argument("bundle", type=Path)
     upload.add_argument("--name", required=True)
@@ -252,19 +269,32 @@ def main():
     evaluate = stages.add_parser("evaluate", help="Compare the checkpoint and its base model on three held-out layouts")
     evaluate.add_argument("--model", required=True)
     evaluate.add_argument("--repeats", type=int, default=2)
-    evaluate.add_argument("--seconds", type=int, default=45)
+    evaluate.add_argument("--seconds", type=int, help="Per-trial limit (default 45 for apple, 90 for relay)")
+    evaluate.add_argument("--task", choices=("apple", "relay"), default="apple")
+    evaluate.add_argument("--baseline", type=Path, help="Reuse a completed report from the baseline command")
+    baseline = stages.add_parser("baseline", help="Collect the base-model half of the relay evaluation")
+    baseline.add_argument("--model", default="dreamlabs/dream-1-beta")
+    baseline.add_argument("--repeats", type=int, default=2)
+    baseline.add_argument("--seconds", type=int, default=90)
     args = parser.parse_args()
     if args.command == "train":
         from . import training
 
         if args.stage == "prepare":
-            path, manifest = training.prepare()
+            try:
+                path, manifest = training.prepare(args.task)
+            except ValueError as exc:
+                parser.error(str(exc))
             print(json.dumps({"bundle": str(path), **manifest["validation"]}, indent=2))
             if not all(report["ok"] for report in manifest["validation"].values()):
                 raise SystemExit(1)
-        elif args.stage == "evaluate":
+        elif args.stage in {"evaluate", "baseline"}:
             try:
-                path, report = training.evaluate(args.model, args.repeats, args.seconds)
+                if args.stage == "baseline":
+                    path, report = training.evaluate(None, args.repeats, args.seconds, "relay", base_model=args.model)
+                else:
+                    seconds = args.seconds if args.seconds is not None else (90 if args.task == "relay" else 45)
+                    path, report = training.evaluate(args.model, args.repeats, seconds, args.task, baseline=args.baseline)
             except ValueError as exc:
                 parser.error(str(exc))
             print(json.dumps({"report": str(path), **report}, indent=2))
