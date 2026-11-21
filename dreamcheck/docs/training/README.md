@@ -2,7 +2,7 @@
 
 Training is optional. The browser workspace lets you review demonstrations, check dataset or job status, and load a published checkpoint. Use the CLI for dataset preparation, upload, and job submission.
 
-Open **Fine-tune** to see the active bundle's task and validation counts. For a locally recorded job, the job ID is filled in automatically. **Check job status** shows the reported step count when available. **Held-out relay baseline** shows valid trials and links to the latest saved evidence.
+Open **Fine-tune** to see the active bundle's task and validation counts. For a locally recorded job, the job ID is filled in automatically. **Check job status** shows the reported step count when available. **Held-out relay baseline** shows valid trials and the number of timeouts at each first incomplete stage. Select **Inspect example** to open evidence for that stage.
 
 1. Run `python -m dreamcheck train prepare`. The scripted YAM trajectory captures joint state, actions, and three policy cameras at 10 Hz. The physical judge admits successful placements and the SDK validates both LeRobot v2.1 splits. Six layouts are used for training and three for holdout. Read the exported `manifest.json` for actual acceptance and validation results.
 2. Run `python -m dreamcheck train upload BUNDLE_PATH --name DATASET_NAME`. This registers or reuses the joint-only DreamCheck YAM embodiment and uploads the training split. Keep the holdout local. Poll with `python -m dreamcheck train status --dataset DATASET_ID` until it reports `processed`.

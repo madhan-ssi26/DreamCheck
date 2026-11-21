@@ -586,6 +586,24 @@ async function loadTraining() {
       const scored = trials.filter((run) => ['passed', 'task_timeout'].includes(run.verdict));
       const total = baseline.layouts.length * baseline.repeats;
       el('baseline-summary').textContent = `${scored.length}/${total} valid trials · ${scored.filter((run) => run.verdict === 'passed').length} passes · ${baseline.status}`;
+      const stages = [['left_pickup', 'Left pickup'], ['transfer', 'Plate transfer'], ['right_pickup', 'Right pickup'], ['settled', 'Final placement']];
+      el('baseline-stages').replaceChildren(...stages.map(([phase, name]) => {
+        const failures = scored.filter((run) => run.failure_phase === phase);
+        const item = document.createElement('div');
+        const label = document.createElement('span');
+        label.textContent = name;
+        const count = document.createElement('strong');
+        count.textContent = failures.length;
+        item.append(label, count);
+        if (failures.length && failures[0].run_id) {
+          const link = document.createElement('a');
+          link.href = `/?run=${encodeURIComponent(failures[0].run_id)}#judge`;
+          link.textContent = 'Inspect example';
+          link.setAttribute('aria-label', `Inspect a ${name.toLowerCase()} failure`);
+          item.append(link);
+        }
+        return item;
+      }));
       const last = trials.at(-1);
       el('baseline-run').hidden = !last?.run_id;
       if (last?.run_id) el('baseline-run').href = `/?run=${encodeURIComponent(last.run_id)}#judge`;

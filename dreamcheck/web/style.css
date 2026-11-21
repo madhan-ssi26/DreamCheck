@@ -267,6 +267,10 @@ thead th { color: var(--muted); }
 #training-cloud { margin-top: 8px; overflow-wrap: anywhere; }
 #baseline-card { grid-column: 1 / -1; }
 #baseline-summary { margin: 6px 0; }
+.baseline-stages { display: grid; grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); gap: 8px; margin: 12px 0; }
+.baseline-stages > div { padding: 10px; background: var(--field); border: 1px solid var(--border); border-radius: 8px; color: var(--muted); }
+.baseline-stages strong { display: block; color: var(--ink); font-size: 22px; }
+.baseline-stages a { font-size: 12px; }
 
 @media (max-width: 1120px) {
   :root { --sidebar: 166px; --gap: 13px; }
