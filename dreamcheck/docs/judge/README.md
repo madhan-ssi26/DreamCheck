@@ -4,10 +4,19 @@
 
 Use the [two-minute guide](../TWO_MINUTE_GUIDE.md) for a first run or the [interactive replay](http://127.0.0.1:8765/replay/index.html) to explore saved stages before starting the simulator.
 
-1. In **Judge**, choose **Apple into bowl**, **Orange into bowl**, or **Two-arm apple relay**, then select a layout. Stock is the simplest starting point. Workshop adds blocks, a parts tray, and another view.
+1. In **Judge**, choose **Apple into bowl**, **Orange into bowl**, **Two-arm apple relay**, or **Two-arm fruit sorting**, then select a layout. Stock is the simplest starting point for placement and relay. Workshop adds blocks, a parts tray, and another view.
 2. Use **Run scripted reference** for a credential-free smoke test, or enter a prompt and choose **Run Dream-1**. Expand **Model and run settings** to change the checkpoint, executed actions per response, or wall-clock deadline.
 3. Watch the overhead, overview, and wrist cameras. Click a response in **Action timeline** to see its evidence. **Show peak lift** opens a saved earlier frame when available.
 4. Edit the prompt and retry, or choose the shorter-horizon retry to refresh the model more often. A retry uses the saved run's starting layout, checkpoint, time limit, and goal. The shorter variant halves the prior action horizon.
+
+## Run aids for two-arm checkpoints
+
+**Model and run settings** has two inference-time aids. They change how DreamCheck executes the returned plans. The checkpoint and prompt stay the same, and every saved run records which aids were on.
+
+- **Plan stride** executes every second or third row of each plan. Use it when the [demonstration probe](../training/README.md#probe-a-checkpoint-against-its-demonstrations) shows plans that cover less distance than the demonstrations.
+- **Two-arm stage gate** keeps the arm with no job in the current relay or sorting stage at its home pose. It follows DreamCheck's plate-transfer check, lets the left arm retreat, parks it, then releases the right arm. The verdict shows when the right arm was released. The stage signal comes from simulator contacts, so treat gated passes as simulator-assisted.
+
+A gated run stops after a simulated-time budget, which keeps request latency out of the result. On a relay or sorting timeout, **Retry with stage gate** reruns the saved scene, prompt, and checkpoint with the gate on and 150 simulated seconds. **Play run** steps the camera through the saved frame of every response.
 
 ## How the judge decides
 
@@ -23,7 +32,7 @@ If Dream Labs refuses a request because the account hit its spending cap, the si
 
 ## Find or share a result
 
-Open **Run history** and filter by outcome or search by prompt, checkpoint, or scene. Recent saved runs appear after a restart. A run link reopens data stored in that checkout. To send someone a result, share the appropriate JSON and JPEG files from `.dreamcheck/runs/RUN_ID/`. For built-in live timeouts, use **Test a fix** to start a matched [comparison](../compare/README.md).
+Open **Run history** and filter by outcome or search by prompt, checkpoint, or scene. Recent saved runs appear after a restart. A run link reopens data stored in that checkout. To send someone a result, share the appropriate JSON and JPEG files from `.dreamcheck/runs/RUN_ID/`. For a scored live failure, use **Test a fix** or **Compare a prompt edit** to carry the run into a matched [comparison](../compare/README.md).
 
 ## Two-minute first-use check
 

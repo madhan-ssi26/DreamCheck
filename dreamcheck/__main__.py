@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from .benchmark import BenchmarkManager, comparison_csv, load_report, repair_plan
+from .benchmark import BenchmarkManager, comparison_csv, load_evaluation_report, load_report, repair_plan
 from .runner import CAMERAS, RUN_ID, RUNS_DIR, RunManager, camera_file, load_run
 from .scoring import TARGETS
 
@@ -78,7 +78,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(json.dumps(status))
         elif path == "/api/benchmark":
             query = parse_qs(url.query)
-            report = load_report(query.get("id", [None])[0])
+            report_id = query.get("id", [None])[0]
+            report = load_report(report_id) or load_evaluation_report(report_id)
             if not report:
                 self._send(json.dumps({"error": "Comparison not found."}), status=404)
                 return
@@ -108,6 +109,16 @@ class Handler(BaseHTTPRequestHandler):
 
             bundle_id = parse_qs(url.query).get("bundle", [None])[0]
             self._send(json.dumps(latest_training(bundle_id)))
+        elif path == "/api/checkpoints":
+            from .training import checkpoint_overview
+
+            self._send(json.dumps(checkpoint_overview()))
+        elif path == "/demo/relay-stage-gate.mp4":
+            clip = Path(__file__).with_name("docs") / "demo" / "relay-stage-gate.mp4"
+            if clip.is_file():
+                self._send(clip.read_bytes(), "video/mp4")
+            else:
+                self._send("Not found", "text/plain", 404)
         elif path == "/api/training-status":
             from .training import cloud_status
 
@@ -226,7 +237,8 @@ class Handler(BaseHTTPRequestHandler):
                                    shorter=data.get("shorter", False), reference=data.get("reference", False),
                                    seconds=data.get("seconds"), model=data.get("model"),
                                    layout_id=data.get("layout", "stock"), task=data.get("task", "apple"),
-                                   goal=data.get("goal"))
+                                   goal=data.get("goal"), assist=data.get("assist"),
+                                   sim_seconds=data.get("sim_seconds"))
             self._send(json.dumps({"run_id": run_id}), status=202)
         except (ValueError, RuntimeError) as exc:
             self._send(json.dumps({"error": str(exc)}), status=409 if isinstance(exc, RuntimeError) else 400)
@@ -251,7 +263,10 @@ def main():
     run.add_argument("--actions", type=int, help="Maximum executed steps per model response (1–48)")
     run.add_argument("--retry-of", help="Saved run ID to retry")
     run.add_argument("--shorter", action="store_true", help="Retry the saved prompt with half as many steps")
-    run.add_argument("--seconds", type=int, help="Live task time limit (15–120 seconds)")
+    run.add_argument("--seconds", type=int, help="Live task wall-clock limit (15–240 seconds)")
+    run.add_argument("--sim-seconds", type=int, help="Stop after this much simulated time instead (15–240)")
+    run.add_argument("--stage-gate", action="store_true", help="Relay and sorting: park the arm with no job in the current stage")
+    run.add_argument("--stride", type=int, default=1, help="Execute every n-th row of each returned plan (1–3)")
     run.add_argument("--model", help="Base or DreamCheck fine-tuned checkpoint ID")
     train = sub.add_parser("train", help="Prepare demonstrations, upload, and inspect fine-tuning jobs")
     stages = train.add_subparsers(dest="stage", required=True)
@@ -275,8 +290,16 @@ def main():
     evaluate.add_argument("--repeats", type=int, default=2)
     evaluate.add_argument("--seconds", type=int, help="Per-trial limit (default 45 for apple, 90 for relay and sorting)")
     evaluate.add_argument("--task", choices=("apple", "relay", "sorting"), default="apple")
+    evaluate.add_argument("--stage-gate", action="store_true", help="Relay and sorting: park the idle arm for both checkpoints and stop on simulated time")
+    evaluate.add_argument("--stride", type=int, default=1, help="Execute every n-th row of the fine-tune's plans (1–3)")
+    evaluate.add_argument("--simulated", action="store_true", help="Count --seconds in simulated time")
     evaluate.add_argument("--baseline", type=Path, help="Reuse a completed report from the baseline command")
     evaluate.add_argument("--resume-report", type=Path, help="Keep scored trials from a partial evaluation")
+    probe = stages.add_parser("probe", help="Compare a checkpoint's plans with a scripted demonstration, state by state")
+    probe.add_argument("--model", required=True)
+    probe.add_argument("--task", choices=("relay", "sorting"), default="relay")
+    probe.add_argument("--layout", help="Training or held-out layout (default: the first training layout)")
+    probe.add_argument("--every", type=int, default=40, help="Demonstration rows between requests (10 per second)")
     baseline = stages.add_parser("baseline", help="Collect the base-model half of an evaluation")
     baseline.add_argument("--task", choices=("apple", "relay", "sorting"), default="relay")
     baseline.add_argument("--model", default="dreamlabs/dream-1-beta")
@@ -294,6 +317,14 @@ def main():
             print(json.dumps({"bundle": str(path), **manifest["validation"]}, indent=2))
             if not all(report["ok"] for report in manifest["validation"].values()):
                 raise SystemExit(1)
+        elif args.stage == "probe":
+            try:
+                path, report = training.probe(args.model, args.task, args.layout, args.every)
+            except ValueError as exc:
+                parser.error(str(exc))
+            brief = [{key: value for key, value in point.items() if key not in ("expert", "predicted")}
+                     for point in report["points"]]
+            print(json.dumps({"report": str(path), **report, "points": brief}, indent=2))
         elif args.stage in {"evaluate", "baseline"}:
             try:
                 if args.stage == "baseline":
@@ -301,7 +332,9 @@ def main():
                 else:
                     seconds = args.seconds if args.seconds is not None else (45 if args.task == "apple" else 90)
                     path, report = training.evaluate(args.model, args.repeats, seconds, args.task,
-                                                     baseline=args.baseline, resume=args.resume_report)
+                                                     baseline=args.baseline, resume=args.resume_report,
+                                                     stage_gate=args.stage_gate, stride=args.stride,
+                                                     simulated=args.simulated)
             except ValueError as exc:
                 parser.error(str(exc))
             print(json.dumps({"report": str(path), **report}, indent=2))
@@ -338,7 +371,8 @@ def main():
     try:
         manager.start(args.prompt, fixture=args.fixture, layout_id=args.layout, actions=args.actions,
                       retry_of=args.retry_of, shorter=args.shorter, reference=args.reference, seconds=args.seconds,
-                      model=args.model, task=args.task)
+                      model=args.model, task=args.task, sim_seconds=args.sim_seconds,
+                      assist={"stage_gate": args.stage_gate, "stride": args.stride})
     except ValueError as exc:
         parser.error(str(exc))
     manager.thread.join()

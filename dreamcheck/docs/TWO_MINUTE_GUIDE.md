@@ -42,4 +42,4 @@ Prefer to explore immediately? Open the [interactive replay](http://127.0.0.1:87
 
 ## Try this with a teammate
 
-Give them a saved timeout and the [Judge guide](judge/README.md). Ask them to find the first incomplete stage, inspect the camera inputs when available, and explain a fair retry. For a built-in fruit-placement timeout, **Test a fix** sets up a matched comparison. For the relay, use **Retry with edited prompt** and keep the starting layout. Observe where they needed help.
+Give them a saved timeout and the [Judge guide](judge/README.md). Ask them to find the first incomplete stage, inspect the camera inputs when available, and explain a fair retry. Use **Test a fix** to review one added instruction in Compare. The quick check uses the original starting scene for both prompts. Observe where they needed help.

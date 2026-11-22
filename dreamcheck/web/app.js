@@ -175,7 +175,11 @@ function renderResult() {
   el('result-detail').hidden = !el('result-detail').textContent || el('result-detail').textContent === el('result-title').textContent;
   const summary = run.mode === 'live' ? `“${run.prompt}” · ${run.model ?? 'Dream-1'} · ${run.scene_name ?? run.layout_id ?? 'stock'} · ${run.actions_per_chunk ?? 48} steps per response`
     : run.mode === 'scripted reference' ? 'Moves the simulated robot through a scripted trajectory.' : 'Checks rendering and scoring without model calls.';
-  el('result-prompt').textContent = run.elapsed_seconds ? `${summary} · ${run.elapsed_seconds} s` : summary;
+  const aids = [run.assist?.stage_gate ? 'stage gate' : '', run.assist?.stride > 1 ? `plan stride ${run.assist.stride}` : '',
+    run.assist_events?.right_released_step ? `right arm released at ${(run.assist_events.right_released_step * 0.05).toFixed(1)} s` : '',
+    run.sim_seconds_limit ? `${run.simulated_seconds ?? 0} of ${run.sim_seconds_limit} simulated s` : ''].filter(Boolean).join(' · ');
+  const timed = run.elapsed_seconds ? `${summary} · ${run.elapsed_seconds} s` : summary;
+  el('result-prompt').textContent = aids ? `${timed} · ${aids}` : timed;
   el('stages').hidden = Boolean(run.error) || run.scene === 'imported';
   const observed = run.checks ?? {
     lifted: run.milestone?.endsWith('lifted from the table') || total(run).lift > 45,
@@ -183,18 +187,28 @@ function renderResult() {
     settled: run.verdict === 'passed',
   };
   const relay = ['relay', 'sorting'].includes(run.task);
-  const stages = relay ? ['left_pickup', 'transfer', 'settled'] : ['lifted', 'reached_bowl', 'settled'];
-  const labels = relay ? ['Left pickup', 'Plate transfer', 'Right placement'] : ['Lifted', 'Reached bowl', 'Settled in bowl'];
-  [...el('stages').children].forEach((stage, index) => {
-    stage.dataset.reached = Boolean(observed[stages[index]]);
-    stage.textContent = labels[index];
-  });
+  const milestones = relay
+    ? [['left_pickup', 'Left pickup'], ['transfer', 'Plate transfer'], ['right_pickup', 'Right pickup'], ['settled', 'Right placement']]
+    : [['lifted', 'Lifted'], ['reached_bowl', 'Reached bowl'], ['settled', 'Settled in bowl']];
+  const stageKey = milestones.map(([key]) => `${key}:${Boolean(observed[key])}`).join('/');
+  if (el('stages').dataset.key !== stageKey) {
+    el('stages').dataset.key = stageKey;
+    el('stages').replaceChildren(...milestones.map(([key, name]) => {
+      const item = document.createElement('li');
+      item.dataset.reached = Boolean(observed[key]);
+      item.textContent = name;
+      return item;
+    }));
+  }
   el('retry-controls').hidden = (!reviewed && Boolean(state.current)) || run.mode !== 'live';
   el('compare-from-run').hidden = !run.verdict || relay || run.scene === 'imported' || run.model !== 'dreamlabs/dream-1-beta';
-  el('test-fix').hidden = run.mode !== 'live' || run.verdict !== 'task_timeout' || relay || run.scene === 'imported';
+  el('test-fix').hidden = run.mode !== 'live' || (run.scene === 'imported' && !run.region_goal) ||
+    !['task_timeout', 'wrong_bay', 'wrong_object_moved'].includes(run.verdict);
+  el('test-fix').textContent = run.scene === 'imported' ? 'Compare a prompt edit' : 'Test a fix';
   el('repair-error').hidden = repairError?.runId !== run.run_id;
   el('repair-error').textContent = repairError?.runId === run.run_id ? repairError.message : '';
   el('shorter').hidden = run.mode !== 'live' || run.verdict === 'api_error' || (run.actions_per_chunk ?? 48) <= 1;
+  el('gated').hidden = !relay || run.mode !== 'live' || run.verdict !== 'task_timeout' || Boolean(run.assist?.stage_gate);
   el('shorter').textContent = `Retry at ${Math.floor((run.actions_per_chunk ?? 48) / 2)} steps`;
   el('comparison').hidden = !previous;
   if (previous) {
@@ -276,12 +290,13 @@ function renderTrace() {
   if (focus) timeline.querySelector(`[data-chunk="${focus}"]`)?.focus({preventScroll: true});
   if (selectedChunk == null && !focus) timeline.scrollLeft = timeline.scrollWidth;
   el('follow').hidden = selectedChunk == null;
+  el('play-run').hidden = Boolean(state.current && !reviewed) || chunks.filter((chunk) => chunk.has_image).length < 2;
   el('follow').textContent = state.current && !reviewed ? 'Return to live camera' : 'Show final frame';
   renderChunk(selection);
 }
 
 function updateButtons() {
-  for (const id of ['run', 'reference', 'retry', 'shorter']) {
+  for (const id of ['run', 'reference', 'retry', 'shorter', 'gated']) {
     el(id).disabled = submitting || Boolean(state.current) || state.benchmark?.status === 'running';
   }
   el('reference').disabled ||= el('layout').value.startsWith('imported-');
@@ -289,7 +304,58 @@ function updateButtons() {
   el('stop-run').disabled = state.current?.status === 'stopping';
 }
 
-async function startRun({reference = false, retry = false, shorter = false} = {}) {
+const SIM_BUDGET = 150;
+async function loadHomeResults() {
+  try {
+    const response = await fetch('/api/checkpoints');
+    const checkpoints = (await response.json()).filter((item) => item.plain && item.aided);
+    el('home-results').hidden = !response.ok || !checkpoints.length;
+    el('home-result-cards').replaceChildren(...checkpoints.map((item) => {
+      const card = document.createElement('a');
+      card.className = 'result-card';
+      card.href = `/?${new URLSearchParams({comparison: item.aided.id, bundle: item.bundle})}#benchmark`;
+      const aids = [item.aided.stage_gate ? 'stage gate' : '', item.aided.stride > 1 ? `plan stride ${item.aided.stride}` : ''].filter(Boolean).join(' + ');
+      const name = document.createElement('strong');
+      name.textContent = item.task;
+      const detail = document.createElement('small');
+      detail.textContent = `With ${aids} · Dream-1 Beta ${item.aided.passes.base}/${item.aided.trials} under the same conditions`;
+      const score = document.createElement('span');
+      score.className = 'result-score';
+      score.innerHTML = `<s>${item.plain.passes.fine_tuned}/${item.plain.trials}</s> → <b>${item.aided.passes.fine_tuned}/${item.aided.trials}</b>`;
+      card.append(name, score, detail);
+      return card;
+    }));
+  } catch {
+    el('home-results').hidden = true;
+  }
+}
+loadHomeResults();
+function renderProbe(probe) {
+  el('probe-card').hidden = !probe?.points?.length;
+  if (el('probe-card').hidden) return;
+  const count = probe.points.length;
+  el('probe-layout').textContent = probe.layout.replaceAll('-', ' ');
+  const paces = probe.points.map((point) => point.pace).filter((pace) => pace != null).sort((a, b) => a - b);
+  const pace = paces.length ? paces[Math.floor(paces.length / 2)] : null;
+  el('probe-summary').textContent = `${probe.idle_arm_moves} of ${count} plans move the arm that rests in the demonstration, and ${probe.active_arm_waits} hold the arm that should work.`
+    + (pace != null ? ` The working arm covers a median ${Math.round(pace * 100)}% of the demonstrated distance.` : '');
+  const bar = (side, value, flag) => `<div class="probe-arm"><span>${side[0].toUpperCase()}</span><i data-flag="${flag}" style="width:${Math.min(100, value / 1.5 * 100)}%"></i></div>`;
+  el('probe-rows').innerHTML = probe.points.map((point) => {
+    const idle = point.active_arm === 'left' ? 'right' : 'left';
+    const findings = [point.idle_arm_moves ? `${idle} arm moves early` : '', point.active_arm_waits ? `${point.active_arm} arm waits` : ''].filter(Boolean);
+    return `<tr><th scope="row">${point.seconds.toFixed(1)} s<br><small>${escapeText(point.phase)}</small></th>
+      <td>${['left', 'right'].map((side) => bar(side, point.expert_motion_rad[side], false)).join('')}</td>
+      <td>${['left', 'right'].map((side) => bar(side, point.planned_motion_rad[side], side === idle ? point.idle_arm_moves : point.active_arm_waits)).join('')}</td>
+      <td class="mono">${point.pace == null ? '—' : `${Math.round(point.pace * 100)}%`}</td>
+      <td class="${findings.length ? 'probe-flag' : 'muted'}">${findings.length ? escapeText(findings.join(' · ')) : 'Matches the working arm'}</td></tr>`;
+  }).join('');
+}
+function runAids() {
+  const twoArm = ['relay', 'sorting'].includes(el('goal').value);
+  return {stage_gate: twoArm && el('stage-gate').value === 'on', stride: Number(el('stride').value)};
+}
+
+async function startRun({reference = false, retry = false, shorter = false, gated = false} = {}) {
   if (submitting || state.current || state.benchmark?.status === 'running') return;
   if (!reference && ((!shorter && !el('prompt').value.trim()) || (!retry &&
       (!el('actions').reportValidity() || !el('seconds').reportValidity())))) {
@@ -306,6 +372,12 @@ async function startRun({reference = false, retry = false, shorter = false} = {}
     body.actions = el('actions').valueAsNumber;
     body.seconds = el('seconds').valueAsNumber;
     body.model = el('model').value.trim();
+    body.assist = runAids();
+    if (body.assist.stage_gate) body.sim_seconds = Math.max(body.seconds, SIM_BUDGET);
+  }
+  if (gated) {
+    body.assist = {stage_gate: true, stride: activeRun().model?.startsWith('dream-1-ft:') ? 2 : 1};
+    body.sim_seconds = SIM_BUDGET;
   }
   try {
     const response = await fetch('/api/run', {
@@ -419,9 +491,11 @@ el('camera').onerror = () => {
 el('actions').oninput = () => {
   const actions = el('actions').valueAsNumber;
   const rate = el('model').value.trim().startsWith('dream-1-ft:') ? 10 : 20;
-  el('cadence').textContent = Number.isFinite(actions) ? `Up to ${(actions / rate).toFixed(2)} s of simulated motion per response` : '';
+  const stride = Number(el('stride').value);
+  el('cadence').textContent = Number.isFinite(actions) ? `Up to ${(actions / rate).toFixed(2)} s of simulated motion per response${stride > 1 ? ` · ${Math.min(48, actions * stride)} plan rows` : ''}` : '';
 };
 el('model').oninput = el('actions').oninput;
+el('stride').onchange = el('actions').oninput;
 el('goal').onchange = () => {
   const task = el('goal').value;
   showSortingLayouts();
@@ -494,6 +568,7 @@ el('preset').onclick = () => {
 };
 el('retry').onclick = () => startRun({retry: true});
 el('shorter').onclick = () => startRun({retry: true, shorter: true});
+el('gated').onclick = () => startRun({retry: true, gated: true});
 el('compare-from-run').onclick = () => window.comparePrompt?.(activeRun().prompt, taskName(activeRun()));
 el('test-fix').onclick = async () => {
   const button = el('test-fix');
@@ -512,12 +587,41 @@ el('test-fix').onclick = async () => {
 el('timeline').onclick = (event) => {
   const button = event.target.closest('[data-chunk]');
   if (!button) return;
+  stopPlayback();
   selectedChunk = Number(button.dataset.chunk);
   showPeak = false;
   renderTrace();
   renderCamera();
 };
+let playback = null;
+function stopPlayback() {
+  clearInterval(playback);
+  playback = null;
+  el('play-run').textContent = 'Play run';
+}
+el('play-run').onclick = () => {
+  if (playback) return stopPlayback();
+  const run = activeRun();
+  const numbers = (run?.chunks ?? []).filter((chunk) => chunk.has_image).map((chunk) => chunk.number);
+  if (numbers.length < 2) return;
+  for (const number of numbers) {
+    new Image().src = `/api/result-image?${new URLSearchParams({run_id: run.run_id, view: selectedView ?? 'top', chunk: number})}`;
+  }
+  let index = 0;
+  el('play-run').textContent = 'Pause';
+  const advance = () => {
+    if (activeRun()?.run_id !== run.run_id || index >= numbers.length) return stopPlayback();
+    selectedChunk = numbers[index++];
+    showPeak = false;
+    renderTrace();
+    renderCamera();
+    el('timeline').querySelector(`[data-chunk="${selectedChunk}"]`)?.scrollIntoView({block: 'nearest', inline: 'center'});
+  };
+  advance();
+  playback = setInterval(advance, 220);
+};
 el('follow').onclick = () => {
+  stopPlayback();
   selectedChunk = null;
   showPeak = false;
   renderTrace();
@@ -542,7 +646,16 @@ async function reviewRun(runId, navigate = false) {
     if (navigate) window.openWorkspace?.('judge');
     const url = new URL(location.href);
     url.searchParams.set('run', runId);
+    if (navigate) url.searchParams.delete('from_comparison');
     history.replaceState(null, '', url);
+    const comparison = url.searchParams.get('from_comparison');
+    el('comparison-back').hidden = !comparison;
+    if (comparison) {
+      const target = new URLSearchParams({comparison});
+      const bundle = url.searchParams.get('bundle');
+      if (bundle) target.set('bundle', bundle);
+      el('comparison-back').href = `/?${target}#benchmark`;
+    }
     selectedChunk = null;
     showPeak = false;
     selectedView = null;
@@ -561,6 +674,8 @@ async function reviewRun(runId, navigate = false) {
       el('model').value = reviewed.run.model ?? 'dreamlabs/dream-1-beta';
       el('actions').value = reviewed.run.actions_per_chunk ?? 48;
       el('seconds').value = reviewed.run.seconds_limit ?? 60;
+      el('stride').value = reviewed.run.assist?.stride ?? 1;
+      el('stage-gate').value = reviewed.run.assist?.stage_gate ? 'on' : 'off';
       el('actions').oninput();
     }
     el('layout').onchange();
@@ -582,7 +697,9 @@ el('latest').onclick = () => {
   reviewed = null;
   const url = new URL(location.href);
   url.searchParams.delete('run');
+  url.searchParams.delete('from_comparison');
   history.replaceState(null, '', url);
+  el('comparison-back').hidden = true;
   selectedChunk = null;
   showPeak = false;
   selectedView = null;
@@ -597,13 +714,15 @@ poll();
 async function loadTraining() {
   try {
     const picker = el('training-bundle');
-    const query = picker.value ? `?bundle=${encodeURIComponent(picker.value)}` : '';
+    const bundleId = picker.value || new URLSearchParams(location.search).get('bundle');
+    const query = bundleId ? `?bundle=${encodeURIComponent(bundleId)}` : '';
     const response = await fetch(`/api/training${query}`);
     if (!response.ok) throw Error('Could not load training exports.');
-    const {bundle, bundles = [], evaluation, baseline} = await response.json();
+    const {bundle, bundles = [], evaluation, evaluations, baseline, probe} = await response.json();
     const changed = trainingBundle?.id !== bundle?.id;
     trainingBundle = bundle;
     if (!bundle) {
+      el('training-data').hidden = true;
       el('training-empty').textContent = 'Create a dataset with python -m dreamcheck train prepare.';
       el('training-empty').hidden = false;
       return;
@@ -667,8 +786,27 @@ async function loadTraining() {
       el('baseline-run').hidden = !last?.run_id;
       if (last?.run_id) el('baseline-run').href = `/?run=${encodeURIComponent(last.run_id)}#judge`;
     }
+    renderProbe(probe);
     el('evaluation-summary').textContent = 'No matched evaluation for this dataset yet.';
+    const protocols = (evaluations ?? []).slice(0, 3).reverse();
+    el('evaluation-list').hidden = protocols.length < 2;
+    el('evaluation-list').replaceChildren(...protocols.map((entry) => {
+      const card = document.createElement('a');
+      card.className = 'bench-score';
+      card.href = `/?${new URLSearchParams({comparison: entry.id, bundle: bundle.id})}#benchmark`;
+      const score = document.createElement('strong');
+      score.textContent = `${entry.passes.fine_tuned}/${entry.trials} vs ${entry.passes.base}/${entry.trials}`;
+      const aids = [entry.stage_gate ? 'stage gate' : 'plain policy loop', entry.stride > 1 ? `plan stride ${entry.stride}` : ''].filter(Boolean).join(' · ');
+      card.append(score, ` Fine-tune vs base · ${aids} · ${entry.seconds} ${entry.time_basis === 'simulated' ? 'simulated ' : ''}s`);
+      return card;
+    }));
+    const comparison = el('evaluation-compare');
+    comparison.hidden = !evaluation?.id;
     if (evaluation) {
+      if (evaluation.id) {
+        const target = new URLSearchParams({comparison: evaluation.id, bundle: bundle.id});
+        comparison.href = `/?${target}#benchmark`;
+      }
       const scored = (policy) => evaluation.pairs
         .map((pair) => pair.runs[policy])
         .filter((run) => ['passed', 'task_timeout', 'wrong_bay', 'wrong_object_moved'].includes(run?.verdict));
@@ -743,5 +881,6 @@ el('use-checkpoint').onclick = () => {
   el('prompt').focus();
 };
 el('baseline-refresh').onclick = loadTraining;
+el('evaluation-refresh').onclick = loadTraining;
 el('training-bundle').onchange = loadTraining;
 window.refreshTraining = loadTraining;

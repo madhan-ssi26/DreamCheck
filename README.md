@@ -1,10 +1,15 @@
 # DreamCheck
 
-DreamCheck helps Dream-1 users see where a robot task failed, test one change from the same starting scene, and share the evidence. It runs locally with the YAM MuJoCo simulator. No physical robot is required.
+DreamCheck helps Dream-1 users see where a robot task failed and measure whether a change fixes it. It runs locally with the YAM MuJoCo simulator. No physical robot is required.
 
-[![DreamCheck Home with the Workshop simulator and links to Judge, Import, and Compare](dreamcheck/docs/images/home.webp)](dreamcheck/docs/TWO_MINUTE_GUIDE.md)
+[![DreamCheck Home with the Workshop simulator, links to Judge, Import, and Compare, and held-out results for three fine-tuned checkpoints](dreamcheck/docs/images/home.webp)](dreamcheck/docs/TWO_MINUTE_GUIDE.md)
 
 [Two-minute new-user guide](dreamcheck/docs/TWO_MINUTE_GUIDE.md) · [Interactive relay replay on localhost](http://127.0.0.1:8765/replay/index.html)
+
+1. Open a run in **Judge** to see the physical failure stage, prepared camera inputs, and action trace.
+2. Choose **Test a fix** to edit one instruction while keeping the checkpoint, starting scene, and time limit fixed.
+3. Check the pass counts and paired frames in **Compare**. The same viewer opens held-out results from **Fine-tune**.
+4. For a fine-tune that underperforms, run the **demonstration probe** to see where its plans leave the demonstrations, then retry with a stage gate or a plan stride.
 
 | Workspace | What you can do |
 | --- | --- |
@@ -12,9 +17,17 @@ DreamCheck helps Dream-1 users see where a robot task failed, test one change fr
 | [Compare](dreamcheck/docs/compare/README.md) | A/B test a prompt, action horizon, or checkpoint on matched layouts. |
 | [Scene import](dreamcheck/docs/scenes/README.md) | Run a compatible MuJoCo ZIP and optionally score a goal region. |
 | [Recording import](dreamcheck/docs/recordings/README.md) | Inspect LeRobot v2.1 video and telemetry, bookmark a failure, and export evidence. |
-| [Fine-tune](dreamcheck/docs/training/README.md) | Prepare validated demonstrations and evaluate a published checkpoint against its base model. |
+| [Fine-tune](dreamcheck/docs/training/README.md) | Prepare validated demonstrations, probe a published checkpoint against them, and evaluate it against its base model. |
 
-[Held-out relay results](dreamcheck/docs/RELAY_EVALUATION.md) show how DreamCheck isolates the first incomplete stage across repeated trials.
+[Held-out relay results](dreamcheck/docs/RELAY_EVALUATION.md) show the full loop on our own fine-tune. The relay checkpoint scored 0/20 on held-out layouts. A demonstration probe showed that it starts the wrong arm from the shared home pose and moves at about a third of the demonstrated pace. With a simulator-assisted stage gate and a faster plan playback, the same checkpoint and prompt passed 8/10 held-out trials while Dream-1 Beta passed 0/10 under the same gate. [Watch the 33-second comparison](dreamcheck/docs/demo/relay-stage-gate.mp4).
+
+| Held-out passes, fine-tune vs Dream-1 Beta | Plain policy loop | With DreamCheck run aids |
+| --- | ---: | ---: |
+| Apple placement | 0/6 vs 1/6 | **6/6 vs 0/6** |
+| Two-arm relay | 0/20 vs 0/20 | **8/10 vs 0/10** |
+| Two-arm sorting | 0/16 vs 4/16 | **8/8 vs 4/8** |
+
+No checkpoint was retrained. The relay and sorting follow-ups use simulator contacts for the stage gate, and the two columns use different time limits. [Protocols and caveats](dreamcheck/docs/training/README.md#results-with-the-run-aids)
 
 [Three-minute demo and relay clips](dreamcheck/docs/demo/README.md) · [Five-minute stage presentation (PDF)](dreamcheck/docs/DreamCheck-stage.pdf)
 

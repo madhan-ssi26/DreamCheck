@@ -343,6 +343,7 @@ class RunViewerSync:
 def main(
     argv=None, shared_env=None, shared_viewer=None, stop_event=None, collision_view=None, on_step=None,
     *, on_wait=None, on_chunk=None, embodiment=None, on_request=None, on_reply=None, gripper_tolerance=0.05,
+    row_stride=1,
 ):
     """Run this module entry point.
     @param argv Optional command-line arguments.
@@ -356,6 +357,7 @@ def main(
     @param on_request Optional callback with the camera window keys and their frames.
     @param on_reply Optional callback with the elapsed time of a successful policy response.
     @param gripper_tolerance Maximum normalized overshoot for simulator gripper targets.
+    @param row_stride Execute every n-th row of each plan, so `--actions` rows cover n times as much of it.
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", default="put apple into the bowl")
@@ -496,6 +498,9 @@ def main(
                 try:
                     if embodiment is not None:
                         reply = joint_reply(reply)
+                    if row_stride > 1:
+                        reply = {**reply, **{key: np.asarray(reply[key], dtype=float)[row_stride - 1::row_stride]
+                                             for key in ("q_l_chunk", "q_r_chunk")}}
                     left, right = validate_chunk(
                         env, reply, args.actions, verbose=not args.quiet, adjustments=adjustments,
                         gripper_tolerance=gripper_tolerance,

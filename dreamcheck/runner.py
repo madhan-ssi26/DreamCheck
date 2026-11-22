@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from math import dist
 from pathlib import Path
 
+from .artifacts import write_json
+from .assist import StageGate, validate_assist
 from .diagnostics import api_failure, summarize_chunk
 from .layouts import LAYOUTS, place_target, scene_for_layout
 from .relay import PROMPT as RELAY_PROMPT, RelayScorer, relay_reference, setup_relay
@@ -25,7 +27,8 @@ RUNS_DIR = ROOT / ".dreamcheck" / "runs"
 RUN_ID = re.compile(r"[0-9a-f]{12}")
 DEFAULT_ACTIONS = 48
 DEFAULT_SECONDS = 60
-SIM_GRIPPER_TOLERANCE = 0.10
+MAX_SECONDS = 240
+SIM_GRIPPER_TOLERANCE = 0.15
 BASE_MODEL = "dreamlabs/dream-1-beta"
 MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_:/.-]{0,159}")
 CAMERAS = ("top", "overview", "left", "right")
@@ -126,7 +129,8 @@ class RunManager:
             return True
 
     def start(self, prompt, fixture=False, retry_of=None, layout_id="stock", actions=None, shorter=False,
-              reference=False, seconds=None, model=None, task="apple", *, owner=None, goal=None):
+              reference=False, seconds=None, model=None, task="apple", *, owner=None, goal=None, assist=None,
+              sim_seconds=None):
         if any(type(flag) is not bool for flag in (fixture, shorter, reference)) or (fixture and reference):
             raise ValueError("Choose one run mode.")
         with self.lock:
@@ -142,6 +146,8 @@ class RunManager:
             if parent:
                 task = parent.get("task", "apple")
                 goal = parent.get("region_goal")
+                assist = parent.get("assist") if assist is None else assist
+                sim_seconds = parent.get("sim_seconds_limit") if sim_seconds is None else sim_seconds
                 layout_id = parent["layout_id"]
             if task not in (*TARGETS, "relay", "sorting") and not (parent and task == "imported"):
                 raise ValueError("Choose apple, orange, relay, or sorting.")
@@ -176,8 +182,12 @@ class RunManager:
             seconds_limit = parent.get("seconds_limit", DEFAULT_SECONDS) if parent else seconds
             if seconds_limit is None:
                 seconds_limit = DEFAULT_SECONDS
-            if type(seconds_limit) is not int or not 15 <= seconds_limit <= 120:
-                raise ValueError("Choose a time limit from 15 to 120 seconds.")
+            if type(seconds_limit) is not int or not 15 <= seconds_limit <= MAX_SECONDS:
+                raise ValueError(f"Choose a time limit from 15 to {MAX_SECONDS} seconds.")
+            if sim_seconds is not None and (type(sim_seconds) is not int or not 15 <= sim_seconds <= MAX_SECONDS
+                                            or reference or fixture):
+                raise ValueError(f"Choose 15 to {MAX_SECONDS} simulated seconds for a live run.")
+            assist = validate_assist(assist, task, not (reference or fixture))
             imported = isinstance(layout_id, str) and bool(SCENE_ID.fullmatch(layout_id))
             scene_name = None
             if imported:
@@ -205,6 +215,7 @@ class RunManager:
                 "model": "Scripted YAM trajectory" if reference else model,
                 "policy_hz": 10 if model.startswith("dream-1-ft:") else 20,
                 "actions_per_chunk": actions, "seconds_limit": seconds_limit,
+                "sim_seconds_limit": sim_seconds, "assist": assist,
                 "verdict": None, "milestone": "Preparing simulator", "chunks": [],
             }
             self.preview = None
@@ -233,6 +244,8 @@ class RunManager:
         peak_lift = 0.0
         peak_views = None
         request_inputs = {}
+        sim_limit = result.get("sim_seconds_limit")
+        assist = result.get("assist") or {}
 
         def with_overview(frames):
             if "overview" not in frames:
@@ -265,6 +278,9 @@ class RunManager:
                     scorer = RelayScorer(scene, last_position[2]) if relay else TaskScorer(scene, last_position[2], target)
             elif result["region_goal"]:
                 region = RegionGoal(scene, result["region_goal"])
+            if scorer is not None and (result.get("assist") or {}).get("stage_gate"):
+                gate = StageGate(scene, scorer).install()
+                result["assist_events"] = gate.events
             last_views = scene.images()
             publish("waiting" if result["mode"] == "live" else "running", encode(last_views))
 
@@ -277,6 +293,8 @@ class RunManager:
         def on_step(scene, images):
             nonlocal last_views, peak_lift, peak_views, observed_steps
             observed_steps += 1
+            result["simulated_seconds"] = round(observed_steps * 0.05, 2)
+            out_of_time = sim_limit is not None and observed_steps * 0.05 >= sim_limit
             if imported:
                 result["milestone"] = "Policy actions executed in imported scene"
                 if region is not None:
@@ -289,7 +307,7 @@ class RunManager:
                 last_views = dict(images)
                 if observed_steps == 1 or observed_steps % 5 == 0 or result["verdict"]:
                     publish("running", encode(last_views))
-                return bool(result["verdict"])
+                return bool(result["verdict"]) or out_of_time
             score = scorer.run_score() if sorting else scorer.observe()
             result["milestone"] = score["milestone"]
             result["target_position"] = score["target_position"]
@@ -309,7 +327,7 @@ class RunManager:
                 result["verdict"] = score["verdict"]
             if scorer.steps == 1 or scorer.steps % 5 == 0 or score["verdict"]:
                 publish("running", encode(last_views))
-            return bool(score["verdict"])
+            return bool(score["verdict"]) or out_of_time
 
         def record_segment(chunk):
             nonlocal last_position, peak_lift, peak_views
@@ -435,11 +453,11 @@ class RunManager:
                     checkpoint_record(result["model"])
                     embodiment = EMBODIMENT
                 run_task(["--task", result["prompt"], "--model", result["model"],
-                          "--seconds", str(result["seconds_limit"]), "--actions", str(result["actions_per_chunk"]),
+                          "--seconds", str(4 * sim_limit + 120 if sim_limit else result["seconds_limit"]), "--actions", str(result["actions_per_chunk"]),
                           "--policy-hz", str(result["policy_hz"]), "--headless", "--quiet"],
                          shared_env=env, on_step=on_step, on_wait=on_wait, on_chunk=on_chunk, embodiment=embodiment,
                          stop_event=stop_event, on_request=on_request, on_reply=on_reply,
-                         gripper_tolerance=SIM_GRIPPER_TOLERANCE)
+                         gripper_tolerance=SIM_GRIPPER_TOLERANCE, row_stride=assist.get("stride", 1))
                 if not stop_event.is_set() and not observed_steps:
                     result.update(verdict="api_error", error="No model actions executed before the deadline.")
             completed = "unscored" if imported and region is None else "task_timeout"
@@ -468,9 +486,7 @@ class RunManager:
                 if last_views is not None:
                     store_views(last_views)
                     result["has_image"] = True
-                temporary = output / "result.tmp"
-                temporary.write_text(json.dumps(result, indent=2), encoding="utf-8")
-                temporary.replace(output / "result.json")
+                write_json(output / "result.json", result)
             except OSError:
                 result["error"] = "Could not save this run to disk."
             finally:

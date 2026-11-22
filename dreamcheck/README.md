@@ -12,7 +12,8 @@ The [first-use review](docs/FIRST_USE_REVIEW.md) records browser checks and the 
 | Matched A/B runs | `benchmark.py` | [Compare](docs/compare/README.md) |
 | Portable MJCF | `scenes.py` | [Scene import](docs/scenes/README.md) |
 | Recorded episodes | `recording.py` | [Recording import](docs/recordings/README.md) |
-| Collection and checkpoint evaluation | `training.py` | [Fine-tuning](docs/training/README.md) |
+| Collection, demonstration probe, and checkpoint evaluation | `training.py` | [Fine-tuning](docs/training/README.md) |
+| Stage gate and plan stride for live runs | `assist.py` | [Run aids](docs/judge/README.md#run-aids-for-two-arm-checkpoints) |
 | Two-arm relay and sorting reference | `relay.py`, `sorting.py` | [Bimanual protocol](docs/training/BIMANUAL_PROTOCOL.md) |
 | Browser interface | `web/` | [Frontend](web/README.md) |
 

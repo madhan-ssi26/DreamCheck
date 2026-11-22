@@ -94,6 +94,20 @@ main { margin-left: var(--sidebar); padding: 31px clamp(18px, 3vw, 48px) 48px; }
 .start-card small { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; font-weight: 400; }
 .start-action { display: inline-flex; gap: 12px; padding: 10px 15px; border-radius: 7px; background: #ffb584; color: #422719; font-weight: 700; text-decoration: none; }
 .start-action:hover { background: #ffc398; }
+#home-results { margin: 14px 0; }
+.home-results { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 14px; margin: 12px 0; align-items: start; }
+.home-clip { margin: 0; }
+.home-clip video { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; background: #f7f3ed; border: 1px solid var(--border); }
+.home-clip figcaption { margin-top: 6px; font-size: 11px; color: var(--muted); }
+.result-cards { display: grid; gap: 8px; }
+.result-card { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; align-items: center; padding: 11px 14px; border: 1px solid var(--border); border-radius: 10px; background: #fff; color: var(--ink); text-decoration: none; font-weight: 500; }
+.result-card:hover { border-color: var(--accent-strong); }
+.result-card strong { font-size: 13px; }
+.result-card small { color: var(--muted); font-size: 11px; grid-column: 1; }
+.result-score { grid-column: 2; grid-row: 1 / span 2; font-size: 25px; font-weight: 700; letter-spacing: -.04em; white-space: nowrap; }
+.result-score s { color: var(--muted); font-weight: 500; text-decoration: none; }
+.result-score b { color: #1f6f63; }
+#probe-card { grid-column: 1 / -1; }
 #home-run { display: inline-block; margin-top: 8px; overflow-wrap: anywhere; }
 .replay-page { max-width: 920px; margin: 0 auto; padding: clamp(16px, 5vw, 48px); }
 .replay-page .page-heading { margin-top: 20px; }
@@ -220,6 +234,12 @@ thead th { color: var(--muted); }
 #repair-setup .bench-slot, #repair-locked { margin-top: 10px; }
 #repair-setup .bench-slot p { margin-top: 6px; overflow-wrap: anywhere; }
 #bench-archive button[aria-pressed="true"], #bench-inspector button[aria-pressed="true"] { border-color: #d79e73; background: #fff0e4; }
+.probe-table td { vertical-align: middle; }
+.probe-arm { display: grid; grid-template-columns: 14px 1fr; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); min-width: 120px; }
+.probe-arm i { display: block; height: 7px; border-radius: 4px; background: #1f6f63; min-width: 2px; }
+.probe-arm i[data-flag="true"] { background: #c9571a; }
+.probe-flag { color: #a23d0b; font-weight: 650; }
+a.bench-score { text-decoration: none; font-weight: 500; }
 .bench-scoreboard { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0; }
 .bench-score { background: #f7f6f4; border: 1px solid #e7e4e0; border-radius: 8px; padding: 8px 10px; color: var(--muted); }
 .bench-score strong { display: block; font-size: 23px; color: var(--ink); letter-spacing: -.04em; }
@@ -292,7 +312,7 @@ thead th { color: var(--muted); }
   main { padding-top: 23px; }
 }
 @media (max-width: 640px) {
-  .home-hero, .start-grid { grid-template-columns: 1fr; }
+  .home-hero, .start-grid, .home-results { grid-template-columns: 1fr; }
   .home-hero figure { min-height: 190px; }
   .home-hero .buttons { margin-top: 17px; }
   .home-intro h1 { max-width: 15ch; }

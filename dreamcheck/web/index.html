@@ -29,21 +29,30 @@
   <div id="home" class="screen" data-view-panel>
     <header class="home-hero">
       <div class="home-intro">
-        <h1>See why a robot run failed</h1>
-        <p>Watch Dream-1 in the YAM simulator, inspect its camera inputs and actions, and retry from the same setup.</p>
+        <h1>Diagnose Dream-1 runs</h1>
+        <p>Inspect a Dream-1 run in the YAM simulator, test a fix from the same starting scene, then check whether it holds up across runs.</p>
         <div class="buttons"><a class="start-action" href="#judge">Open Judge <span aria-hidden="true">↗</span></a><a href="#try">Try it in 2 minutes</a></div>
       </div>
       <figure><img src="/workshop.webp" width="640" height="360" alt="Two YAM arms facing a workbench with fruit, blocks and a divided tray"><figcaption>Workshop scene · YAM simulator</figcaption></figure>
     </header>
     <div class="start-grid">
-      <a class="start-card" href="#recordings"><span><strong>Bring a scene</strong><small>Run a MuJoCo package with your own objects and goal.</small></span><span aria-hidden="true">↗</span></a>
-      <a class="start-card" href="#recording"><span><strong>Inspect a recording</strong><small>Find a moment in a LeRobot episode and export its evidence.</small></span><span aria-hidden="true">↗</span></a>
-      <a class="start-card" href="#benchmark"><span><strong>Compare a change</strong><small>Test prompts or checkpoints across matched layouts.</small></span><span aria-hidden="true">↗</span></a>
+      <a class="start-card" href="#recordings"><span><strong>Bring a scene or recording</strong><small>Run your MuJoCo scene or inspect a LeRobot episode.</small></span><span aria-hidden="true">↗</span></a>
+      <a class="start-card" href="#benchmark"><span><strong>Verify a change</strong><small>Compare outcomes and camera frames on matched scenes.</small></span><span aria-hidden="true">↗</span></a>
+      <a class="start-card" href="#training"><span><strong>Evaluate a checkpoint</strong><small>Review training demos and open held-out results in Compare.</small></span><span aria-hidden="true">↗</span></a>
     </div>
+    <section id="home-results" hidden>
+      <div class="section-heading"><h2>Our fine-tunes, before and after a diagnosis</h2><a href="#training">Open Fine-tune</a></div>
+      <p class="muted">Held-out passes for each fine-tuned checkpoint under the plain policy loop, then with the run aids its demonstration probe pointed to. No checkpoint was retrained.</p>
+      <div class="home-results">
+        <figure class="home-clip"><video id="home-clip" src="/demo/relay-stage-gate.mp4" muted loop playsinline controls preload="metadata"></video><figcaption>Same relay checkpoint, prompt, and scene · plain loop beside the stage gate · 5× playback</figcaption></figure>
+        <div id="home-result-cards" class="result-cards"></div>
+      </div>
+      <p class="muted">The stage gate reads simulator contacts, so relay and sorting results with it are simulator-assisted. The two protocols use different time limits.</p>
+    </section>
     <section id="home-recent" hidden><div class="section-heading"><h2>Latest saved run</h2><a href="#history">Run history</a></div><a id="home-run"></a></section>
   </div>
   <div id="judge" class="screen" data-view-panel hidden>
-    <div class="page-heading"><div><h1>Action judge</h1><p>See what Dream-1 requested and what the robot did.</p></div><button id="latest" class="secondary" hidden>Back to latest run</button></div>
+    <div class="page-heading"><div><h1>Action judge</h1><p>See what Dream-1 requested and what the robot did.</p></div><div class="action-setting"><a id="comparison-back" hidden>Back to comparison</a><button id="latest" class="secondary" hidden>Back to latest run</button></div></div>
     <div class="mobile-jumps"><button class="text-button" data-jump="setup-panel">Run setup</button><button class="text-button" data-jump="inspection-panel">Run evidence</button></div>
     <div class="workspace judge-grid">
     <div class="panel-stack">
@@ -80,6 +89,7 @@
           <div class="section-heading">
             <p id="trace-summary" class="muted"></p>
             <div class="action-setting evidence-tools">
+              <button id="play-run" class="secondary" hidden>Play run</button>
               <button id="peak" class="secondary" hidden>Show peak lift</button>
               <button id="follow" class="secondary" hidden></button>
             </div>
@@ -121,9 +131,18 @@
         </div>
         <div>
           <label for="seconds">Time limit (s)</label>
-          <input id="seconds" type="number" min="15" max="120" value="60" required>
+          <input id="seconds" type="number" min="15" max="240" value="60" required>
+        </div>
+        <div>
+          <label for="stride">Plan stride</label>
+          <select id="stride" aria-describedby="assist-note"><option value="1">Every row</option><option value="2">Every 2nd row · 2× pace</option><option value="3">Every 3rd row · 3× pace</option></select>
+        </div>
+        <div>
+          <label for="stage-gate">Two-arm stage gate</label>
+          <select id="stage-gate" aria-describedby="assist-note"><option value="off">Off</option><option value="on">Park the idle arm</option></select>
         </div>
       </div>
+      <p id="assist-note" class="muted">The stage gate holds the arm with no job in the current relay stage at home, using the simulator's plate-transfer check. Gated runs stop on simulated time.</p>
       <p id="cadence" class="mono"></p>
         <label for="model">Checkpoint ID</label>
         <input id="model" type="text" value="dreamlabs/dream-1-beta" maxlength="160">
@@ -150,6 +169,7 @@
     <div id="retry-controls" class="buttons" hidden>
       <button id="retry" class="secondary">Retry with edited prompt</button>
       <button id="shorter"></button>
+      <button id="gated" hidden>Retry with stage gate</button>
       <button id="compare-from-run" class="secondary">Compare this prompt</button>
       <button id="test-fix" hidden>Test a fix</button>
     </div>
@@ -164,6 +184,11 @@
     <div class="mobile-jumps"><button class="text-button" data-jump="compare-setup">Comparison setup</button><button class="text-button" data-jump="compare-results">Results and frames</button></div>
     <div class="workspace compare-grid">
     <div id="compare-results" class="panel-stack compare-results">
+      <section id="repair-source" hidden>
+        <div class="section-heading"><h2>Original run</h2><a id="repair-source-link">Open action timeline ↗</a></div>
+        <p id="repair-source-detail" class="muted"></p>
+        <figure id="repair-source-frame" class="bench-frame" hidden><img id="repair-source-image" alt="Final camera frame of the original run"></figure>
+      </section>
       <section id="bench-empty" class="empty-card"><h2>Comparison results</h2><p class="muted">Run a comparison to see the results and simulator frames here.</p></section>
       <section id="bench-report" hidden></section>
       <section id="bench-inspector" hidden>
@@ -175,18 +200,27 @@
             <button id="bench-view-peak" class="secondary" aria-pressed="false">Peak lift</button>
           </div>
         </div>
+        <p id="bench-pair-prompt" class="muted" hidden></p>
         <div id="bench-frames" class="bench-slots"></div>
       </section>
+      <section id="bench-trials" hidden></section>
     </div>
     <section id="compare-setup" class="controls compare-tools" aria-label="Comparison setup">
-    <h2>Comparison setup</h2>
+    <h2 id="bench-setup-title">Comparison setup</h2>
+    <div id="bench-evaluation-tools" hidden>
+      <div class="buttons"><a href="#training">Back to dataset</a><button id="bench-refresh" type="button" class="secondary">Refresh evaluation</button></div>
+      <button id="bench-new" type="button" class="secondary">New comparison</button>
+    </div>
     <div id="repair-setup" hidden>
       <p id="repair-reason" class="muted"></p>
       <div class="bench-slot"><span class="slot-tag">A</span> Baseline<p id="repair-original"></p></div>
-      <div class="bench-slot"><span class="slot-tag candidate">B</span> Added instruction<p id="repair-instruction"></p></div>
+      <div class="bench-slot"><span class="slot-tag candidate">B</span>
+        <div id="repair-fix-row" hidden><label for="repair-fix">Candidate change</label><select id="repair-fix"><option value="gate">Stage gate · park the idle arm</option><option value="prompt">Edit the prompt</option></select>
+        <p id="repair-gate-note" class="muted">Same prompt and checkpoint. The arm with no job in the current stage stays at home until the plate transfer registers. Both runs stop at 150 simulated seconds.</p></div>
+        <div id="repair-prompt-row"><label for="repair-candidate">Candidate prompt</label><textarea id="repair-candidate" rows="5" maxlength="400" required></textarea></div></div>
       <p id="repair-locked" class="mono"></p>
       <label for="repair-scope">Run scope</label>
-      <select id="repair-scope"><option value="suite">3 scenes × 3 repeats per setting</option><option value="source">Quick check · original scene</option></select>
+      <select id="repair-scope" aria-describedby="repair-budget"><option value="source">Quick check · original scene</option><option value="suite">Repeat across scenes</option></select>
       <p id="repair-budget" class="muted"></p>
       <div class="buttons"><button id="repair-start">Run fix comparison</button><button id="repair-clear" class="secondary">Custom comparison</button></div>
     </div>
@@ -244,7 +278,12 @@
         <label for="training-episode">Review a graded demonstration</label>
         <select id="training-episode"></select>
         <video id="training-video" controls preload="metadata" muted playsinline></video>
-        <p id="evaluation-summary" class="muted"></p>
+        <div class="section-heading">
+          <p id="evaluation-summary" class="muted" aria-live="polite"></p>
+          <button id="evaluation-refresh" type="button" class="text-button">Refresh</button>
+        </div>
+        <a id="evaluation-compare" hidden>Open evaluation in Compare ↗</a>
+        <div id="evaluation-list" class="bench-scoreboard" hidden></div>
       </section>
       <section class="controls">
         <h2>Dream Labs status</h2>
@@ -258,10 +297,16 @@
         <button id="use-checkpoint" hidden>Use published checkpoint</button>
       </section>
       <section id="baseline-card" hidden>
-        <div class="section-heading"><h2>Held-out relay baseline</h2><button id="baseline-refresh" class="text-button">Refresh results</button></div>
+        <div class="section-heading"><h2>Held-out relay baseline · plain policy loop</h2><button id="baseline-refresh" class="text-button">Refresh results</button></div>
         <p id="baseline-summary"></p>
         <div id="baseline-stages" class="baseline-stages" aria-label="First incomplete stage"></div>
         <a id="baseline-run" hidden>Inspect latest trial ↗</a>
+      </section>
+      <section id="probe-card" hidden>
+        <div class="section-heading"><h2>Demonstration probe</h2><span id="probe-layout" class="pill mono"></span></div>
+        <p id="probe-summary"></p>
+        <p class="muted">DreamCheck replays a scripted demonstration and asks the checkpoint for a fresh plan at each listed moment. Bars show how far each arm moves in the demonstration and in the returned plan over the same 4.8 seconds.</p>
+        <div class="table-scroll"><table class="probe-table"><thead><tr><th>Demo time</th><th>Demonstration</th><th>Checkpoint plan</th><th>Pace</th><th>Finding</th></tr></thead><tbody id="probe-rows"></tbody></table></div>
       </section>
     </div>
   </div>

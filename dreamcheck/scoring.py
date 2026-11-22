@@ -3,6 +3,7 @@
 import numpy as np
 
 TARGETS = ("apple", "orange")
+SCORED = frozenset(("passed", "task_timeout", "wrong_bay", "wrong_object_moved"))
 
 
 class TaskScorer:
