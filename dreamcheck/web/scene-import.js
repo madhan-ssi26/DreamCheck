@@ -3,13 +3,14 @@
   const status = el('scene-upload-status');
   const picker = el('saved-scenes');
   const editor = el('scene-goal');
+  const score = el('scene-score');
   const dimensions = ['width', 'depth', 'height'].map((name) => el(`scene-${name}`));
   const dwell = el('scene-dwell');
   let scenes = [];
   let request = 0;
 
   function readGoal() {
-    if (editor.hidden || !editor.open) return null;
+    if (editor.hidden || !score.checked) return null;
     if ([...dimensions, dwell].some((input) => !input.validity.valid)) return null;
     return {object: el('scene-object').value, destination: el('scene-destination').value,
       size_cm: dimensions.map((input) => input.valueAsNumber), dwell_ticks: dwell.valueAsNumber};
@@ -19,7 +20,7 @@
     const goal = readGoal();
     const footprint = el('scene-footprint');
     footprint.hidden = !goal;
-    el('scene-use').disabled = !picker.value || (!editor.hidden && editor.open && !goal);
+    el('scene-use').disabled = !picker.value || (score.checked && !goal);
     if (!goal) return;
     const [width, depth, height] = goal.size_cm;
     const box = footprint.querySelector('div');
@@ -33,11 +34,18 @@
 
   editor.addEventListener('toggle', previewGoal);
   editor.addEventListener('input', previewGoal);
+  score.onchange = () => {
+    editor.hidden = !score.checked;
+    editor.open = score.checked;
+    previewGoal();
+  };
 
   function selectScene() {
     const scene = scenes.find((item) => item.id === picker.value);
     editor.open = false;
-    editor.hidden = !(scene?.objects?.length && scene?.destinations?.length);
+    editor.hidden = true;
+    score.checked = false;
+    el('scene-score-option').hidden = !(scene?.objects?.length && scene?.destinations?.length);
     el('scene-object').replaceChildren(...(scene?.objects ?? []).map((name) => new Option(name)));
     el('scene-destination').replaceChildren(...(scene?.destinations ?? []).map((name) => new Option(name.replace(':', ' · '), name)));
     previewGoal();

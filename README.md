@@ -14,6 +14,10 @@ DreamCheck helps Dream-1 users see where a robot task failed, test one change fr
 | [Recording import](dreamcheck/docs/recordings/README.md) | Inspect LeRobot v2.1 video and telemetry, bookmark a failure, and export evidence. |
 | [Fine-tune](dreamcheck/docs/training/README.md) | Prepare validated demonstrations and evaluate a published checkpoint against its base model. |
 
+[Held-out relay results](dreamcheck/docs/RELAY_EVALUATION.md) show how DreamCheck isolates the first incomplete stage across repeated trials.
+
+[Five-minute stage presentation (PDF)](dreamcheck/docs/DreamCheck-stage.pdf)
+
 ## Quick start
 
 Use Python 3.12 and Chrome or Edge. The quick start below targets Windows. Run these commands from the checkout root in PowerShell.
@@ -74,7 +78,7 @@ Pause or seek on the timeline, then choose **Mark the failure moment**. Export t
 
 DreamCheck is a single-user workstation app bound to IPv4 loopback. Import packages and recordings from sources you trust. A browser can view saved runs by opening a link on the same workstation. To share evidence across machines, export it from the appropriate workspace.
 
-The built-in judge scores apple and orange placement and a two-arm apple relay through a transfer plate. Imported scenes require YAM-compatible controls. Recording import supports LeRobot v2.1 Parquet and matching MP4 files. Fine-tuning submission and checkpoint serving depend on the Dream Labs account and platform.
+The built-in judge scores apple and orange placement, a two-arm apple relay through a transfer plate, and instruction-conditioned sorting of two fruits into two bays. Imported scenes require YAM-compatible controls. Recording import supports LeRobot v2.1 Parquet and matching MP4 files. Fine-tuning submission and checkpoint serving depend on the Dream Labs account and platform.
 
 ## Upstream and license
 

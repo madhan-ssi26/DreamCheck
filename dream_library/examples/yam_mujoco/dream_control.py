@@ -226,25 +226,30 @@ def observation(env, windows, task, model, station=False):
     return obs
 
 
-def validate_chunk(env, actions, action_limit=48, *, verbose=True, adjustments=None):
+class ActionChunkRejected(ValueError):
+    """A policy reply could not safely be turned into simulator commands."""
+
+
+def validate_chunk(env, actions, action_limit=48, *, verbose=True, adjustments=None, gripper_tolerance=0.05):
     """Validate the response; project model joint targets onto URDF bounds in the executed prefix.
     @param env Simulation environment.
     @param actions Returned action chunks.
     @param action_limit Maximum chunk rows to execute.
     @param verbose Whether to print detailed adjustments.
     @param adjustments Optional list collecting adjustment notices.
+    @param gripper_tolerance Maximum normalized overshoot before rejecting the response.
     @return The left and right rows to execute, each (rows, 7), clipped to the joint limits.
     """
     left, right = [np.array(actions[k], dtype=float, copy=True) for k in ("q_l_chunk", "q_r_chunk")]
     if left.ndim != 2 or left.shape != right.shape or left.shape[1] != 7 or not 1 <= len(left) <= 48:
-        raise ValueError("Dream must return matching 1–48 x 7 joint chunks.")
+        raise ActionChunkRejected("Dream must return matching 1–48 x 7 joint chunks.")
     if not 1 <= action_limit <= 48:
         raise ValueError("Action limit must be 1–48.")
     notices = []
     prepared = []
     for side, full in [("left", left), ("right", right)]:
         if not np.isfinite(full).all():
-            raise ValueError(f"{side} chunk contains non-finite values; no rows executed.")
+            raise ActionChunkRejected(f"{side} chunk contains non-finite values; no rows executed.")
         rows = full[:action_limit].copy()
         joint_limits = (env.joint_limits(side) if hasattr(env, "joint_limits") else
                         [env.model.joint(f"{side}_joint{i}").range for i in range(1, 7)])
@@ -254,10 +259,10 @@ def validate_chunk(env, actions, action_limit=48, *, verbose=True, adjustments=N
         # Joint policy predictions are unbounded; project finite targets onto
         # actual URDF limits, just as the browser simulator does. Gripper
         # normalization is still checked to catch a wrong response contract.
-        bad = np.argwhere(overshoot[:, 6] > 0.05)
+        bad = np.argwhere(overshoot[:, 6] > gripper_tolerance)
         if len(bad):
             step = bad[0, 0]
-            raise ValueError(
+            raise ActionChunkRejected(
                 f"{side} step {step + 1} gripper: requested {rows[step, 6]:.6f}; "
                 "expected normalized opening 0..1. No rows executed."
             )
@@ -287,7 +292,7 @@ def joint_reply(reply):
         arm = np.asarray(parts.get(f"action.{side}_arm"), dtype=float)
         grip = np.asarray(parts.get(f"action.{side}_gripper"), dtype=float)
         if arm.ndim != 2 or arm.shape[1] != 6 or grip.shape not in {(len(arm),), (len(arm), 1)}:
-            raise ValueError(f"Checkpoint did not return the trained {side} joints and gripper.")
+            raise ActionChunkRejected(f"Checkpoint did not return the trained {side} joints and gripper.")
         packed[f"q_{side[0]}_chunk"] = np.column_stack((arm, grip))
     return packed
 
@@ -337,7 +342,7 @@ class RunViewerSync:
 
 def main(
     argv=None, shared_env=None, shared_viewer=None, stop_event=None, collision_view=None, on_step=None,
-    *, on_wait=None, on_chunk=None, embodiment=None, on_request=None, on_reply=None,
+    *, on_wait=None, on_chunk=None, embodiment=None, on_request=None, on_reply=None, gripper_tolerance=0.05,
 ):
     """Run this module entry point.
     @param argv Optional command-line arguments.
@@ -350,6 +355,7 @@ def main(
     @param on_chunk Optional callback with the reply, bounded targets, executed row count and request RTT.
     @param on_request Optional callback with the camera window keys and their frames.
     @param on_reply Optional callback with the elapsed time of a successful policy response.
+    @param gripper_tolerance Maximum normalized overshoot for simulator gripper targets.
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", default="put apple into the bowl")
@@ -491,7 +497,8 @@ def main(
                     if embodiment is not None:
                         reply = joint_reply(reply)
                     left, right = validate_chunk(
-                        env, reply, args.actions, verbose=not args.quiet, adjustments=adjustments
+                        env, reply, args.actions, verbose=not args.quiet, adjustments=adjustments,
+                        gripper_tolerance=gripper_tolerance,
                     )
                 except ValueError:
                     from credentials import config_dir

@@ -4,7 +4,7 @@ Start the local app using the [installation steps](../../README.md#quick-start).
 
 | Time | What to do | What to look for |
 | --- | --- | --- |
-| 0:00–0:20 | Open [Judge](http://127.0.0.1:8765/#judge), select **Two-arm apple relay**, then choose **Run scripted reference**. | The left arm picks up the apple. |
+| 0:00–0:20 | Open [Try DreamCheck](http://127.0.0.1:8765/#try), click **Open offline relay setup**, then choose **Run scripted reference**. | The left arm picks up the apple. |
 | 0:20–1:10 | Watch the transfer plate and switch between **Overhead**, **3D angle**, and the wrist views. | The apple rests on the plate before the right arm takes over. |
 | 1:10–2:00 | Read the **Task verdict**. Select a bar in **Reference timeline**, then try **Show peak lift**. Open the run again from **Run history**. | The verdict checks left pickup, plate transfer, and right placement. The timeline lets you revisit the evidence. |
 

@@ -3,6 +3,7 @@
 Start with the [project README](../README.md) for installation and the browser walkthrough. Each component guide describes where to start, what it measures, and where its outputs go.
 
 The [two-minute user guide](docs/TWO_MINUTE_GUIDE.md) includes a clickable reference replay.
+The [first-use review](docs/FIRST_USE_REVIEW.md) records browser checks and the points of friction found during onboarding.
 
 | Component | Implementation | Guide |
 | --- | --- | --- |

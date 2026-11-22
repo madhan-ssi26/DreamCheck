@@ -15,6 +15,7 @@ from pathlib import Path
 from .diagnostics import api_failure, summarize_chunk
 from .layouts import LAYOUTS, place_target, scene_for_layout
 from .relay import PROMPT as RELAY_PROMPT, RelayScorer, relay_reference, setup_relay
+from .sorting import SORT_CASES, SortingScorer, sorting_prompt, sorting_scene
 from .scoring import TARGETS, TaskScorer
 from .scenes import SCENE_ID, ImportedScene, RegionGoal, scene_metadata, scene_path, validate_goal
 
@@ -24,6 +25,7 @@ RUNS_DIR = ROOT / ".dreamcheck" / "runs"
 RUN_ID = re.compile(r"[0-9a-f]{12}")
 DEFAULT_ACTIONS = 48
 DEFAULT_SECONDS = 60
+SIM_GRIPPER_TOLERANCE = 0.10
 BASE_MODEL = "dreamlabs/dream-1-beta"
 MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_:/.-]{0,159}")
 CAMERAS = ("top", "overview", "left", "right")
@@ -140,10 +142,16 @@ class RunManager:
             if parent:
                 task = parent.get("task", "apple")
                 goal = parent.get("region_goal")
-            if task not in (*TARGETS, "relay") and not (parent and task == "imported"):
-                raise ValueError("Choose apple, orange, or the two-arm relay.")
+                layout_id = parent["layout_id"]
+            if task not in (*TARGETS, "relay", "sorting") and not (parent and task == "imported"):
+                raise ValueError("Choose apple, orange, relay, or sorting.")
+            sorting = task == "sorting"
+            case = SORT_CASES.get(layout_id) if sorting and isinstance(layout_id, str) else None
+            if sorting and case is None:
+                raise ValueError("Choose a sorting layout with a fruit and destination bay.")
             if reference:
-                prompt = RELAY_PROMPT if task == "relay" else f"Put {task} into the bowl (scripted reference)"
+                prompt = sorting_prompt(*case[:2]) if sorting else (
+                    RELAY_PROMPT if task == "relay" else f"Put {task} into the bowl (scripted reference)")
             previous_actions = parent.get("actions_per_chunk", DEFAULT_ACTIONS) if parent else DEFAULT_ACTIONS
             if shorter:
                 if not parent or parent["mode"] != "live" or previous_actions <= 1:
@@ -157,7 +165,6 @@ class RunManager:
             if type(actions) is not int or not 1 <= actions <= DEFAULT_ACTIONS:
                 raise ValueError("Choose 1–48 steps per request.")
             if parent:
-                layout_id = parent["layout_id"]
                 fixture = parent["mode"] == "offline fixture"
                 reference = parent["mode"] == "scripted reference"
                 model = parent.get("model")
@@ -179,7 +186,7 @@ class RunManager:
                 goal = validate_goal(goal, metadata)
                 if reference or fixture or model not in {BASE_MODEL, "dreamlabs/dream-1-beta-flash"}:
                     raise ValueError("Use Dream-1 Beta or Beta Flash for imported YAM-compatible scenes.")
-            elif not isinstance(layout_id, str) or layout_id not in LAYOUTS:
+            elif not isinstance(layout_id, str) or (not sorting and layout_id not in LAYOUTS):
                 raise ValueError("Choose a supported scene layout.")
             elif goal is not None:
                 raise ValueError("Custom goal regions require an imported scene.")
@@ -191,7 +198,7 @@ class RunManager:
                 "run_id": run_id, "created_at": datetime.now(timezone.utc).isoformat(),
                 "prompt": prompt.strip(), "layout_id": layout_id, "retry_of": retry_of,
                 "task": "imported" if imported else task,
-                "scene": "imported" if imported else scene_for_layout(layout_id), "cameras": CAMERAS,
+                "scene": "imported" if imported else "sorting" if sorting else scene_for_layout(layout_id), "cameras": CAMERAS,
                 "scene_name": scene_name,
                 "region_goal": goal,
                 "mode": "scripted reference" if reference else "offline fixture" if fixture else "live",
@@ -212,7 +219,9 @@ class RunManager:
         fixture = result["mode"] == "offline fixture"
         reference = result["mode"] == "scripted reference"
         relay = result["task"] == "relay"
-        target = "apple" if relay else result["task"]
+        sorting = result["task"] == "sorting"
+        target, destination, offset = SORT_CASES[result["layout_id"]] if sorting else (
+            "apple" if relay else result["task"], "bowl", (0, 0))
         imported = target == "imported"
         observed_steps = 0
         env = None
@@ -220,7 +229,7 @@ class RunManager:
         region = None
         last_views = None
         last_position = None
-        bowl_position = None
+        destination_position = None
         peak_lift = 0.0
         peak_views = None
         request_inputs = {}
@@ -245,12 +254,15 @@ class RunManager:
                     self.preview = preview
 
         def begin_scene(scene):
-            nonlocal scorer, region, last_views, last_position, bowl_position
+            nonlocal scorer, region, last_views, last_position, destination_position
             if not imported:
                 last_position = scene.data.body(target).xpos.tolist()
-                bowl_position = scene.data.body("bowl").xpos.tolist()
+                destination_position = scene.data.body(destination).xpos.tolist()
                 result["initial_target_position"] = last_position
-                scorer = RelayScorer(scene, last_position[2]) if relay else TaskScorer(scene, last_position[2], target)
+                if sorting:
+                    scorer = SortingScorer(scene, target, destination)
+                else:
+                    scorer = RelayScorer(scene, last_position[2]) if relay else TaskScorer(scene, last_position[2], target)
             elif result["region_goal"]:
                 region = RegionGoal(scene, result["region_goal"])
             last_views = scene.images()
@@ -278,11 +290,13 @@ class RunManager:
                 if observed_steps == 1 or observed_steps % 5 == 0 or result["verdict"]:
                     publish("running", encode(last_views))
                 return bool(result["verdict"])
-            score = scorer.observe()
+            score = scorer.run_score() if sorting else scorer.observe()
             result["milestone"] = score["milestone"]
             result["target_position"] = score["target_position"]
             result["checks"] = score["checks"]
             result["end_state"] = score["end_state"]
+            if sorting:
+                result["failure_phase"] = None if score["verdict"] == "passed" else score["failure_phase"]
             lift = score["target_position"][2] - scorer.initial_target_z
             if images is None and (lift > peak_lift or score["verdict"]):
                 images = scene.images()
@@ -311,8 +325,8 @@ class RunManager:
             chunk.update({
                 "number": number,
                 "target_moved_mm": round(1000 * dist(last_position[:2], position[:2]), 1),
-                "bowl_progress_mm": round(1000 * (dist(last_position[:2], bowl_position[:2])
-                                                   - dist(position[:2], bowl_position[:2])), 1),
+                "bowl_progress_mm": round(1000 * (dist(last_position[:2], destination_position[:2])
+                                                   - dist(position[:2], destination_position[:2])), 1),
                 "peak_lift_mm": round(1000 * peak_lift, 1),
                 "milestone": result["milestone"],
                 "has_image": last_views is not None,
@@ -370,6 +384,8 @@ class RunManager:
                 return
             if imported:
                 env = ImportedScene(scene_path(result["layout_id"]).read_bytes())
+            elif sorting:
+                env = sorting_scene(offset)
             else:
                 env = YamEnv(result["scene"])
                 if relay:
@@ -385,7 +401,8 @@ class RunManager:
                     from .reference import fruit_to_bowl
 
                     phase_steps = 0
-                    trajectory = relay_reference(env) if relay else fruit_to_bowl(env, target)
+                    trajectory = (relay_reference(env, target=target, final_destination=destination) if relay or sorting
+                                  else fruit_to_bowl(env, target))
                     for phase, last_step in trajectory:
                         if stop_event.is_set():
                             break
@@ -411,6 +428,7 @@ class RunManager:
                     result["fixture_note"] = "Offline scene fixture. No Dream-1 requests were made."
             else:
                 embodiment = None
+                result["gripper_overshoot_tolerance"] = SIM_GRIPPER_TOLERANCE
                 if result["policy_hz"] == 10:
                     from .training import EMBODIMENT, checkpoint_record
 
@@ -420,7 +438,8 @@ class RunManager:
                           "--seconds", str(result["seconds_limit"]), "--actions", str(result["actions_per_chunk"]),
                           "--policy-hz", str(result["policy_hz"]), "--headless", "--quiet"],
                          shared_env=env, on_step=on_step, on_wait=on_wait, on_chunk=on_chunk, embodiment=embodiment,
-                         stop_event=stop_event, on_request=on_request, on_reply=on_reply)
+                         stop_event=stop_event, on_request=on_request, on_reply=on_reply,
+                         gripper_tolerance=SIM_GRIPPER_TOLERANCE)
                 if not stop_event.is_set() and not observed_steps:
                     result.update(verdict="api_error", error="No model actions executed before the deadline.")
             completed = "unscored" if imported and region is None else "task_timeout"
@@ -429,13 +448,16 @@ class RunManager:
                 if relay:
                     result["failure_phase"] = next((stage for stage in ("left_pickup", "transfer", "right_pickup", "settled")
                                                     if not result["checks"][stage]), None)
-                else:
+                elif not sorting:
                     result["failure_phase"], result["diagnosis"] = diagnose_timeout(result)
         except (Exception, SystemExit) as exc:
             name = type(exc).__name__
             result["verdict"] = "api_error" if name.startswith("Dream") or isinstance(exc, SystemExit) else "sim_error"
             if name == "CheckpointError":
                 result.update(verdict="api_error", error=str(exc))
+            elif name == "ActionChunkRejected":
+                result.update(verdict="api_error", error=str(exc),
+                              api_error={"type": name, "reason": "action_chunk_rejected"})
             elif result["verdict"] == "api_error":
                 result["error"], result["api_error"] = api_failure(exc)
             else:

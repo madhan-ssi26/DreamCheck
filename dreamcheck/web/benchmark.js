@@ -115,8 +115,8 @@ window.renderBenchmark = (latest, current, archive = []) => {
     <a href="/api/benchmark?id=${benchmark.id}&format=csv" download>Download CSV</a>
     <a href="/api/benchmark?id=${benchmark.id}" download>JSON</a></div></div>
     <div class="bench-scoreboard">
-      <div class="bench-score"><strong>${summary.A.passes}/${summary.matched}</strong> A passes</div>
-      <div class="bench-score"><strong>${summary.B.passes}/${summary.matched}</strong> B passes</div>
+      <div class="bench-score"><strong>${summary.A.passes}/${summary.matched}</strong> Baseline passes</div>
+      <div class="bench-score"><strong>${summary.B.passes}/${summary.matched}</strong> Candidate passes</div>
       <div class="bench-score"><strong>${summary.matched}/${benchmark.pairs.length}</strong> Matched pairs</div>
     </div>
     ${benchmark.repair ? `<p><strong>${phaseLabels[benchmark.repair.phase]} fix · ${conclusion}</strong> · <a href="/?run=${benchmark.repair.source_run}#judge">Original failure</a></p>` : ''}

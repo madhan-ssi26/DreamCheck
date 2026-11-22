@@ -7,14 +7,28 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 from .relay import relay_reference
-from .runner import sim_imports
 
 BAYS = ("near_bay", "far_bay")
 OBJECTS = ("apple", "orange")
+SORTING_NAME = "Sort the requested fruit through the plate into the requested bay"
+TRAIN_OFFSETS = ((0, 0), (.003, -.002), (-.003, .002), (.002, .002), (-.002, -.002), (.004, 0),
+                 (-.004, 0), (0, .004), (0, -.004), (.004, .002), (-.004, -.002), (.002, -.004))
+HOLDOUT_OFFSETS = ((.003, .003), (-.003, -.003))
+SORT_TRAIN = {f"sort-train-{fruit}-{bay}-{index:02}": (fruit, bay, offset)
+              for fruit in OBJECTS for bay in BAYS for index, offset in enumerate(TRAIN_OFFSETS)}
+SORT_HOLDOUT = {f"sort-holdout-{fruit}-{bay}-{index:02}": (fruit, bay, offset)
+                for fruit in OBJECTS for bay in BAYS for index, offset in enumerate(HOLDOUT_OFFSETS)}
+SORT_CASES = SORT_TRAIN | SORT_HOLDOUT
+
+
+def sorting_prompt(fruit, bay):
+    color = "blue" if bay == "near_bay" else "amber"
+    return f"Use the left arm to put the {fruit} on the transfer plate, then use the right arm to move it into the {color} bay. Leave the other fruit in place."
 
 
 def sorting_scene(offset=(0, 0)):
     import mujoco
+    from .runner import sim_imports
 
     sim_imports()
     from yam_env import YamEnv, build_xml
@@ -49,6 +63,8 @@ class SortingScorer:
         self.other = env.model.body(next(name for name in OBJECTS if name != target)).id
         self.bay = bay
         self.start_height = env.data.xpos[self.target, 2]
+        self.initial_target_z = float(self.start_height)
+        self.steps = 0
         self.other_start = env.data.xpos[self.other].copy()
         self.left_pickup = self.right_pickup = self.last_right = False
         self.transferred = False
@@ -56,6 +72,7 @@ class SortingScorer:
 
     def observe(self):
         env = self.env
+        self.steps += 1
         contacts = set()
         for contact in env.data.contact:
             bodies = [int(env.model.geom_bodyid[index]) for index in (contact.geom1, contact.geom2)]
@@ -80,6 +97,18 @@ class SortingScorer:
         if released and any(bay in contacts for bay in BAYS if bay != self.bay):
             return "wrong_bay"
         return "passed" if self.bay_ticks >= 10 else None
+
+    def run_score(self):
+        verdict = self.observe()
+        phase = verdict if verdict in {"wrong_object_moved", "wrong_bay"} else self.incomplete_stage()
+        milestones = {"left_pickup": "Waiting for left pickup", "plate_transfer": "Left arm picked up the requested fruit",
+                      "right_pickup": "Requested fruit rested on the transfer plate", "placement": "Right arm picked up the requested fruit",
+                      "wrong_object_moved": "The unrequested fruit moved", "wrong_bay": "Right arm released in the wrong bay"}
+        return {"verdict": verdict, "milestone": "Right arm sorted the requested fruit" if verdict == "passed" else milestones[phase],
+                "target_position": self.env.data.xpos[self.target].tolist(), "end_state": {},
+                "failure_phase": phase,
+                "checks": {"left_pickup": self.left_pickup, "transfer": self.transferred,
+                           "right_pickup": self.right_pickup, "settled": verdict == "passed"}}
 
     def incomplete_stage(self):
         return next(stage for stage, complete in (("left_pickup", self.left_pickup), ("plate_transfer", self.transferred),

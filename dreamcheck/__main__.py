@@ -106,7 +106,8 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/training":
             from .training import latest_training
 
-            self._send(json.dumps(latest_training()))
+            bundle_id = parse_qs(url.query).get("bundle", [None])[0]
+            self._send(json.dumps(latest_training(bundle_id)))
         elif path == "/api/training-status":
             from .training import cloud_status
 
@@ -123,8 +124,9 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/training-video":
             from .training import OUTPUT, latest_training
 
-            bundle = latest_training()["bundle"]
-            layout = parse_qs(url.query).get("layout", [""])[0]
+            query = parse_qs(url.query)
+            bundle = latest_training(query.get("bundle", [None])[0])["bundle"]
+            layout = query.get("layout", [""])[0]
             split = next((entry["split"] for entry in bundle["attempts"] if entry["layout"] == layout
                           and entry["split"] in {"train", "holdout"}), None) if bundle else None
             if split:
@@ -242,7 +244,7 @@ def main():
     run = sub.add_parser("run", help="Start one run and print its status")
     run.add_argument("--prompt")
     run.add_argument("--layout", default="stock")
-    run.add_argument("--task", choices=(*TARGETS, "relay"), default="apple", help="Which task the judge scores")
+    run.add_argument("--task", choices=(*TARGETS, "relay", "sorting"), default="apple", help="Which task the judge scores")
     modes = run.add_mutually_exclusive_group()
     modes.add_argument("--fixture", action="store_true", help="Run a static scene without Dream-1 inference")
     modes.add_argument("--reference", action="store_true", help="Run a scripted physics reference")
@@ -254,7 +256,7 @@ def main():
     train = sub.add_parser("train", help="Prepare demonstrations, upload, and inspect fine-tuning jobs")
     stages = train.add_subparsers(dest="stage", required=True)
     prepare = stages.add_parser("prepare", help="Generate and validate separated train and holdout datasets")
-    prepare.add_argument("--task", choices=("apple", "relay"), default="apple")
+    prepare.add_argument("--task", choices=("apple", "relay", "sorting"), default="apple")
     upload = stages.add_parser("upload", help="Register the YAM body and upload the train split")
     upload.add_argument("bundle", type=Path)
     upload.add_argument("--name", required=True)
@@ -270,9 +272,11 @@ def main():
     evaluate.add_argument("--model", required=True)
     evaluate.add_argument("--repeats", type=int, default=2)
     evaluate.add_argument("--seconds", type=int, help="Per-trial limit (default 45 for apple, 90 for relay)")
-    evaluate.add_argument("--task", choices=("apple", "relay"), default="apple")
+    evaluate.add_argument("--task", choices=("apple", "relay", "sorting"), default="apple")
     evaluate.add_argument("--baseline", type=Path, help="Reuse a completed report from the baseline command")
-    baseline = stages.add_parser("baseline", help="Collect the base-model half of the relay evaluation")
+    evaluate.add_argument("--resume-report", type=Path, help="Keep scored trials from a partial evaluation")
+    baseline = stages.add_parser("baseline", help="Collect the base-model half of an evaluation")
+    baseline.add_argument("--task", choices=("apple", "relay", "sorting"), default="relay")
     baseline.add_argument("--model", default="dreamlabs/dream-1-beta")
     baseline.add_argument("--repeats", type=int, default=2)
     baseline.add_argument("--seconds", type=int, default=90)
@@ -291,10 +295,11 @@ def main():
         elif args.stage in {"evaluate", "baseline"}:
             try:
                 if args.stage == "baseline":
-                    path, report = training.evaluate(None, args.repeats, args.seconds, "relay", base_model=args.model)
+                    path, report = training.evaluate(None, args.repeats, args.seconds, args.task, base_model=args.model)
                 else:
-                    seconds = args.seconds if args.seconds is not None else (90 if args.task == "relay" else 45)
-                    path, report = training.evaluate(args.model, args.repeats, seconds, args.task, baseline=args.baseline)
+                    seconds = args.seconds if args.seconds is not None else (45 if args.task == "apple" else 90)
+                    path, report = training.evaluate(args.model, args.repeats, seconds, args.task,
+                                                     baseline=args.baseline, resume=args.resume_report)
             except ValueError as exc:
                 parser.error(str(exc))
             print(json.dumps({"report": str(path), **report}, indent=2))

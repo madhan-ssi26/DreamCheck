@@ -100,7 +100,7 @@
     <section id="setup-panel" class="controls" aria-labelledby="task-title">
       <div class="section-heading"><h2 id="task-title">Run setup</h2></div>
       <label for="goal">Scored task</label>
-      <select id="goal"><option value="apple">Apple into bowl</option><option value="orange">Orange into bowl</option><option value="relay">Two-arm apple relay</option></select>
+      <select id="goal"><option value="apple">Apple into bowl</option><option value="orange">Orange into bowl</option><option value="relay">Two-arm apple relay</option><option value="sorting">Two-arm fruit sorting</option></select>
       <div class="section-heading prompt-heading"><label for="prompt">Prompt</label><button id="preset" class="text-button">Load demo prompt</button></div>
       <textarea id="prompt" rows="3" maxlength="400">put apple into the bowl</textarea>
       <label for="layout">Scene</label>
@@ -236,6 +236,9 @@
     <div class="workspace training-grid" id="training-data" hidden>
       <section>
         <h2>Training recordings</h2>
+        <div id="training-bundle-control" hidden>
+          <label for="training-bundle">Dataset</label><select id="training-bundle"></select>
+        </div>
         <p id="training-task" class="muted"></p>
         <p id="training-counts" class="muted"></p>
         <label for="training-episode">Review a graded demonstration</label>
@@ -271,8 +274,9 @@
       <label for="saved-scenes">Saved scenes</label><select id="saved-scenes"><option value="">Choose a scene</option></select>
       <label for="scene-package">Scene package</label><input id="scene-package" type="file" accept=".zip">
       <p id="scene-upload-status" role="status"></p>
+      <label id="scene-score-option" class="check-option" hidden><input id="scene-score" type="checkbox"> Score a goal region in Judge</label>
       <details id="scene-goal" hidden>
-        <summary>Set a goal region</summary>
+        <summary>Configure goal region</summary>
         <label for="scene-object">Movable object</label><select id="scene-object"></select>
         <label for="scene-destination">Fixed destination</label><select id="scene-destination"></select>
         <div class="goal-dimensions">
@@ -318,16 +322,15 @@
     </div>
   </div>
   <div id="try" class="screen" data-view-panel hidden>
-    <div class="page-heading"><div><h1>Try DreamCheck</h1><p>Figure out where one robot run stopped, then set up a fair retry.</p></div></div>
+    <div class="page-heading"><div><h1>Try DreamCheck in two minutes</h1><p>Start with a scripted two-arm run. No API key is needed.</p></div></div>
     <section class="try-guide">
       <ol>
-        <li>Open a timed-out Dream-1 run. If you have one of your own, use that.</li>
-        <li>Use the verdict, timeline, and wrist views to decide whether it stopped at pickup, transport, or release.</li>
-        <li>Choose <strong>Test a fix</strong>. Before starting a quick check, explain what changes between A and B.</li>
+        <li>Open the offline relay setup and choose <strong>Run scripted reference</strong>.</li>
+        <li>Watch the left arm put the apple on the transfer plate and the right arm move it to the bowl.</li>
+        <li>Read the verdict, then select a bar in the timeline and switch camera views.</li>
       </ol>
-      <div class="buttons"><a id="try-example" hidden>Open an example timeout</a><a href="#history">Browse saved runs</a><a href="#judge">Run your own prompt</a></div>
-      <p><a href="/replay/index.html">Explore the offline relay replay</a></p>
-      <p class="muted">Trying this with a teammate? Let them do the steps without coaching. Ask where the run failed and what their retry would change.</p>
+      <div class="buttons"><button id="try-offline" type="button">Open offline relay setup</button><a href="/replay/index.html">Explore the replay</a></div>
+      <div class="buttons"><a id="try-example" hidden>Open a saved Dream-1 timeout</a><a href="#history">Browse run history</a></div>
     </section>
   </div>
 </main>

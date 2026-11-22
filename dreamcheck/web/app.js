@@ -4,6 +4,7 @@ const verdicts = {
   passed: 'Apple settled in the bowl', task_timeout: 'Task timed out',
   api_error: 'Dream-1 or setup error', sim_error: 'Simulator error', canceled: 'Run canceled',
   unscored: 'Imported scene run complete',
+  wrong_bay: 'Wrong destination bay', wrong_object_moved: 'Unrequested fruit moved',
 };
 const statuses = {starting: 'Preparing simulator', waiting: 'Waiting for Dream-1', running: 'Executing actions', stopping: 'Stopping simulator'};
 const demoPrompt = 'Pick up the red apple with the arm closest to it. Grasp from above, lift it clear of the table, move it directly over the brown bowl at the center, and open the gripper to drop it into the bowl.';
@@ -16,6 +17,30 @@ const defaultPrompt = (task) => task === 'relay'
 const taskName = (run) => run?.task ?? 'apple';
 function addRelayLayout(id) {
   if (/^relay-(holdout|train)-\d{2}$/.test(id)) window.addSceneOption(id, id.replaceAll('-', ' '));
+}
+const sortingCase = (id) => /^sort-(holdout|train)-(apple|orange)-(near|far)_bay-(\d{2})$/.exec(id);
+function addSortingLayout(id) {
+  const match = sortingCase(id);
+  if (!match) return;
+  const [, split, fruit, bay, number] = match;
+  window.addSceneOption(id, `${fruit} → ${bay === 'near' ? 'blue' : 'amber'} bay · ${split} ${number}`);
+}
+function sortingPrompt(id) {
+  const [, , fruit, bay] = sortingCase(id);
+  return `Use the left arm to put the ${fruit} on the transfer plate, then use the right arm to move it into the ${bay === 'near' ? 'blue' : 'amber'} bay. Leave the other fruit in place.`;
+}
+function showSortingLayouts() {
+  const select = el('layout');
+  const sorting = el('goal').value === 'sorting';
+  if (sorting) {
+    for (const fruit of ['apple', 'orange']) {
+      for (const bay of ['near', 'far']) {
+        for (const number of ['00', '01']) addSortingLayout(`sort-holdout-${fruit}-${bay}_bay-${number}`);
+      }
+    }
+  }
+  for (const option of select.options) option.hidden = sorting !== Boolean(sortingCase(option.value));
+  if (sorting !== Boolean(sortingCase(select.value))) select.selectedIndex = [...select.options].findIndex((option) => !option.hidden);
 }
 const modeLabels = {live: 'Dream-1 live', 'scripted reference': 'Scripted reference', 'offline fixture': 'Offline fixture'};
 const escapeText = (text) => String(text ?? '').replace(/[&<>"']/g, (character) => ({
@@ -65,7 +90,8 @@ function showCamera(source, label) {
 function renderCamera() {
   const run = activeRun();
   if (!run) return;
-  el('camera-scene').textContent = run.scene_name ?? (run.scene === 'imported' ? 'Imported scene' : run.scene === 'workshop' ? 'Workshop' : 'Stock');
+  const scenes = {imported: 'Imported scene', workshop: 'Workshop', sorting: 'Sorting bench'};
+  el('camera-scene').textContent = run.scene_name ?? scenes[run.scene] ?? 'Stock';
   const views = run.cameras ?? ['top'];
   const view = views.includes(selectedView) ? selectedView : ['workshop', 'imported'].includes(run.scene) ? 'overview' : 'top';
   el('camera-views').hidden = views.length < 2;
@@ -156,7 +182,7 @@ function renderResult() {
     reached_bowl: run.milestone?.endsWith('reached the bowl') || run.verdict === 'passed',
     settled: run.verdict === 'passed',
   };
-  const relay = run.task === 'relay';
+  const relay = ['relay', 'sorting'].includes(run.task);
   const stages = relay ? ['left_pickup', 'transfer', 'settled'] : ['lifted', 'reached_bowl', 'settled'];
   const labels = relay ? ['Left pickup', 'Plate transfer', 'Right placement'] : ['Lifted', 'Reached bowl', 'Settled in bowl'];
   [...el('stages').children].forEach((stage, index) => {
@@ -189,7 +215,7 @@ function renderChunk(chunk) {
   const execution = chunk.phase ? `${chunk.executed_steps} simulator steps` : `${chunk.rtt_ms} ms · ${chunk.executed_steps} of ${chunk.proposed_steps} proposed steps ran · ${chunk.clipped_steps} clipped`;
   container.innerHTML = `<p><strong>${escapeText(chunk.phase ?? `Response ${chunk.number}`)}</strong> · ${execution}</p>
     <p class="muted">${escapeText(chunk.milestone)}${chunk.bowl_progress_mm == null ? '' : ` · ${chunk.peak_lift_mm} mm peak lift ·
-    ${chunk.target_moved_mm ?? chunk.apple_moved_mm} mm horizontal movement · ${Math.abs(chunk.bowl_progress_mm)} mm ${direction} bowl`}</p>
+    ${chunk.target_moved_mm ?? chunk.apple_moved_mm} mm horizontal movement · ${Math.abs(chunk.bowl_progress_mm)} mm ${direction} ${run.task === 'sorting' ? 'target bay' : 'bowl'}`}</p>
     ${rows ? `<div class="table-scroll"><table><thead><tr><th>Joint</th><th>Clipped steps</th>
     <th>Requested target*</th><th>Applied target*</th></tr></thead><tbody>${rows}</tbody></table></div>
     <p class="muted">*The largest correction for each joint in this response.</p>` : chunk.phase ? '' : '<p>No joint targets were clipped in the executed steps.</p>'}`;
@@ -398,12 +424,25 @@ el('actions').oninput = () => {
 el('model').oninput = el('actions').oninput;
 el('goal').onchange = () => {
   const task = el('goal').value;
-  el('prompt').value = defaultPrompt(task);
-  if (task === 'relay' && el('seconds').valueAsNumber < 90) el('seconds').value = '90';
+  showSortingLayouts();
+  el('prompt').value = task === 'sorting' ? sortingPrompt(el('layout').value) : defaultPrompt(task);
+  if (['relay', 'sorting'].includes(task) && el('seconds').valueAsNumber < 90) el('seconds').value = '90';
 };
-el('layout').onchange = () => {
+el('try-offline').onclick = () => {
+  el('latest').click();
+  el('goal').value = 'relay';
+  el('layout').value = 'stock';
+  el('goal').onchange();
+  el('layout').onchange();
+  window.openWorkspace('judge');
+  el('reference').focus();
+};
+el('layout').onchange = (event) => {
   const value = el('layout').value;
   const imported = value.startsWith('imported-');
+  if (event && sortingCase(value) && el('goal').value === 'sorting') {
+    el('prompt').value = sortingPrompt(value);
+  }
   el('goal').disabled = imported;
   el('scene-note').hidden = !imported && value !== 'workshop';
   const goal = importedGoals.get(value);
@@ -421,6 +460,8 @@ window.useImportedScene = (id, name, goal) => {
   el('latest').click();
   window.addSceneOption(id, name);
   importedGoals.set(id, goal);
+  if (el('goal').value === 'sorting') el('goal').value = 'apple';
+  showSortingLayouts();
   el('layout').value = id;
   if (!['dreamlabs/dream-1-beta', 'dreamlabs/dream-1-beta-flash'].includes(el('model').value)) el('model').value = 'dreamlabs/dream-1-beta';
   el('layout').onchange();
@@ -447,13 +488,9 @@ el('stop-run').onclick = async () => {
   }
 };
 el('preset').onclick = () => {
-  el('prompt').value = demoPromptFor(el('goal').value);
-  el('model').value = 'dreamlabs/dream-1-beta';
-  el('layout').value = 'stock';
-  el('layout').onchange();
-  el('actions').value = 24;
-  el('seconds').value = 45;
-  el('actions').oninput();
+  const task = el('goal').value;
+  el('prompt').value = task === 'sorting' ? sortingPrompt(el('layout').value)
+    : task === 'relay' ? defaultPrompt(task) : demoPromptFor(task);
 };
 el('retry').onclick = () => startRun({retry: true});
 el('shorter').onclick = () => startRun({retry: true, shorter: true});
@@ -515,6 +552,8 @@ async function reviewRun(runId, navigate = false) {
       importedGoals.set(reviewed.run.layout_id, reviewed.run.region_goal ?? null);
     }
     if (reviewed.run.task === 'relay') addRelayLayout(reviewed.run.layout_id);
+    if (reviewed.run.task === 'sorting') addSortingLayout(reviewed.run.layout_id);
+    showSortingLayouts();
     el('layout').value = reviewed.run.layout_id ?? 'stock';
     if (!el('layout').value) el('layout').value = 'stock';
     if (reviewed.run.mode === 'live') {
@@ -557,9 +596,12 @@ poll();
 
 async function loadTraining() {
   try {
-    const response = await fetch('/api/training');
+    const picker = el('training-bundle');
+    const query = picker.value ? `?bundle=${encodeURIComponent(picker.value)}` : '';
+    const response = await fetch(`/api/training${query}`);
     if (!response.ok) throw Error('Could not load training exports.');
-    const {bundle, evaluation, baseline} = await response.json();
+    const {bundle, bundles = [], evaluation, baseline} = await response.json();
+    const changed = trainingBundle?.id !== bundle?.id;
     trainingBundle = bundle;
     if (!bundle) {
       el('training-empty').textContent = 'Create a dataset with python -m dreamcheck train prepare.';
@@ -567,19 +609,34 @@ async function loadTraining() {
       return;
     }
     el('training-empty').hidden = true;
+    el('training-bundle-control').hidden = bundles.length < 2;
+    picker.replaceChildren(...bundles.map((entry) => {
+      const name = entry.task === defaultPrompt('relay') ? 'Two-arm relay'
+        : entry.task === 'put apple into the bowl' ? 'Apple placement' : entry.task;
+      return new Option(name, entry.id);
+    }));
+    picker.value = bundle.id;
     el('training-task').textContent = bundle.task;
     const {train, holdout} = bundle.validation;
     el('training-state').textContent = train.ok && holdout.ok ? 'Validated by Dream Labs SDK' : 'Validation failed';
     el('training-counts').textContent = `${train.episodes} training episodes · ${holdout.episodes} held out · ${bundle.sample_rate_hz} Hz · 3 cameras`;
     el('training-data').hidden = false;
+    const selectedDemo = changed ? '' : el('training-episode').value;
     const demos = bundle.attempts.filter((attempt) => attempt.passed);
     el('training-episode').innerHTML = demos.map((attempt) =>
       `<option value="${escapeText(attempt.layout)}">${escapeText(attempt.layout)} · passed · ${attempt.frames} frames</option>`).join('');
+    if (selectedDemo && demos.some((attempt) => attempt.layout === selectedDemo)) el('training-episode').value = selectedDemo;
     el('training-episode').onchange();
     el('training-upload').textContent = bundle.upload
       ? `Uploaded training split · ${bundle.upload.id}` : 'The validated training split is ready to upload.';
     el('dataset-status').hidden = !bundle.upload;
-    if (bundle.job?.id && !el('training-job').value) el('training-job').value = bundle.job.id;
+    if (changed) {
+      el('training-job').value = bundle.job?.id ?? '';
+      el('training-cloud').textContent = '';
+      el('training-progress').hidden = true;
+      el('use-checkpoint').hidden = true;
+      publishedCheckpoint = null;
+    }
     el('baseline-card').hidden = !baseline;
     if (baseline) {
       const trials = baseline.pairs.map((pair) => pair.runs.base).filter(Boolean);
@@ -612,6 +669,11 @@ async function loadTraining() {
       el('evaluation-summary').textContent = evaluation.status === 'complete'
         ? `The latest comparison scored ${evaluation.passes.base}/${evaluation.pairs.length} for the base model and ${evaluation.passes.fine_tuned}/${evaluation.pairs.length} for the fine-tune.`
         : `The latest matched evaluation is ${evaluation.status}.`;
+      if (evaluation.status === 'complete' && evaluation.task === 'relay') {
+        const base = evaluation.pairs.filter((pair) => pair.runs.base.checks?.transfer).length;
+        const tuned = evaluation.pairs.filter((pair) => pair.runs.fine_tuned.checks?.transfer).length;
+        el('evaluation-summary').textContent += ` Plate transfers completed out of ${evaluation.pairs.length} trials: ${base} for base and ${tuned} for the fine-tune.`;
+      }
     }
   } catch (error) {
     el('training-empty').textContent = error.message;
@@ -620,15 +682,20 @@ async function loadTraining() {
 }
 
 el('training-episode').onchange = () => {
-  el('training-video').src = `/api/training-video?layout=${encodeURIComponent(el('training-episode').value)}`;
+  const video = el('training-video');
+  const query = new URLSearchParams({layout: el('training-episode').value, bundle: trainingBundle.id});
+  const source = `/api/training-video?${query}`;
+  if (video.getAttribute('src') !== source) video.src = source;
 };
 
 async function checkTraining(kind, id) {
   if (!id) return;
+  const bundleId = trainingBundle?.id;
   el('training-cloud').textContent = 'Checking Dream Labs…';
   try {
     const response = await fetch(`/api/training-status?${kind}=${encodeURIComponent(id)}`);
     const result = await response.json();
+    if (trainingBundle?.id !== bundleId) return;
     if (!response.ok) throw Error(result.error);
     el('training-cloud').textContent = [result.status, result.progress?.phase, result.error, result.fine_tuned_model].filter(Boolean).join(' · ');
     if (kind === 'job') {
@@ -645,7 +712,7 @@ async function checkTraining(kind, id) {
       el('use-checkpoint').hidden = !publishedCheckpoint;
     }
   } catch (error) {
-    el('training-cloud').textContent = error.message;
+    if (trainingBundle?.id === bundleId) el('training-cloud').textContent = error.message;
   }
 }
 
@@ -653,14 +720,16 @@ el('dataset-status').onclick = () => checkTraining('dataset', trainingBundle?.up
 el('job-status').onclick = () => checkTraining('job', el('training-job').value.trim());
 el('use-checkpoint').onclick = () => {
   const relay = trainingBundle.task === defaultPrompt('relay');
+  const sorting = trainingBundle.attempts.some((attempt) => sortingCase(attempt.layout));
   el('model').value = publishedCheckpoint;
-  const layout = relay ? 'relay-holdout-00' : 'holdout-left';
+  const layout = sorting ? 'sort-holdout-apple-near_bay-00' : relay ? 'relay-holdout-00' : 'holdout-left';
   addRelayLayout(layout);
+  addSortingLayout(layout);
+  el('goal').value = sorting ? 'sorting' : relay ? 'relay' : 'apple';
   el('layout').value = layout;
-  el('layout').onchange();
-  el('goal').value = relay ? 'relay' : 'apple';
   el('goal').onchange();
-  el('prompt').value = trainingBundle.task;
+  el('layout').onchange();
+  if (!sorting) el('prompt').value = trainingBundle.task;
   el('actions').value = 12;
   el('actions').oninput();
   el('model').closest('details').open = true;
@@ -668,4 +737,5 @@ el('use-checkpoint').onclick = () => {
   el('prompt').focus();
 };
 el('baseline-refresh').onclick = loadTraining;
+el('training-bundle').onchange = loadTraining;
 window.refreshTraining = loadTraining;

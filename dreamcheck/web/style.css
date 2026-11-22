@@ -103,6 +103,8 @@ main { margin-left: var(--sidebar); padding: 31px clamp(18px, 3vw, 48px) 48px; }
 .replay-page figure img { display: block; width: 100%; height: auto; border-radius: 8px; }
 .replay-page figcaption { margin-top: 10px; color: var(--muted); }
 #scene-goal { margin: 12px 0; }
+.check-option { display: flex; align-items: center; gap: 8px; }
+.check-option input { min-height: auto; accent-color: var(--accent-strong); }
 #scene-goal summary { cursor: pointer; font-weight: 650; }
 .goal-dimensions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 #scene-footprint { margin: 16px 0 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; text-align: center; }
