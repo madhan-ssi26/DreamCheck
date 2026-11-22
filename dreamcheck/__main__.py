@@ -264,14 +264,16 @@ def main():
     lookup = status.add_mutually_exclusive_group()
     lookup.add_argument("--dataset")
     lookup.add_argument("--job")
+    import_model = stages.add_parser("import-checkpoint", help="Attach a published checkpoint to its local dataset")
+    import_model.add_argument("--job", required=True)
     submit = stages.add_parser("submit", help="Queue one paid Dream Labs training job")
     submit.add_argument("--dataset", required=True)
     submit.add_argument("--suffix", required=True)
     submit.add_argument("--steps", type=int, required=True)
-    evaluate = stages.add_parser("evaluate", help="Compare the checkpoint and its base model on three held-out layouts")
+    evaluate = stages.add_parser("evaluate", help="Compare the checkpoint and its base model on the task's held-out layouts")
     evaluate.add_argument("--model", required=True)
     evaluate.add_argument("--repeats", type=int, default=2)
-    evaluate.add_argument("--seconds", type=int, help="Per-trial limit (default 45 for apple, 90 for relay)")
+    evaluate.add_argument("--seconds", type=int, help="Per-trial limit (default 45 for apple, 90 for relay and sorting)")
     evaluate.add_argument("--task", choices=("apple", "relay", "sorting"), default="apple")
     evaluate.add_argument("--baseline", type=Path, help="Reuse a completed report from the baseline command")
     evaluate.add_argument("--resume-report", type=Path, help="Keep scored trials from a partial evaluation")
@@ -310,6 +312,11 @@ def main():
                 result = training.upload(args.bundle, args.name)
             elif args.stage == "status":
                 result = training.cloud_status(args.dataset, args.job)
+            elif args.stage == "import-checkpoint":
+                try:
+                    result = training.import_checkpoint(args.job)
+                except training.CheckpointError as exc:
+                    parser.error(str(exc))
             else:
                 result = training.queue_training(args.dataset, args.suffix, args.steps)
             print(json.dumps(result, indent=2, default=str))

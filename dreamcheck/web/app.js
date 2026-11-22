@@ -612,7 +612,9 @@ async function loadTraining() {
     el('training-bundle-control').hidden = bundles.length < 2;
     picker.replaceChildren(...bundles.map((entry) => {
       const name = entry.task === defaultPrompt('relay') ? 'Two-arm relay'
-        : entry.task === 'put apple into the bowl' ? 'Apple placement' : entry.task;
+        : entry.task === 'put apple into the bowl' ? 'Apple placement'
+        : entry.task === 'Sort the requested fruit through the plate into the requested bay' ? 'Two-arm fruit sorting'
+        : entry.task;
       return new Option(name, entry.id);
     }));
     picker.value = bundle.id;
@@ -632,10 +634,10 @@ async function loadTraining() {
     el('dataset-status').hidden = !bundle.upload;
     if (changed) {
       el('training-job').value = bundle.job?.id ?? '';
-      el('training-cloud').textContent = '';
+      publishedCheckpoint = bundle.job?.checkpoint ?? null;
+      el('training-cloud').textContent = publishedCheckpoint ? `Published · ${publishedCheckpoint}` : '';
       el('training-progress').hidden = true;
-      el('use-checkpoint').hidden = true;
-      publishedCheckpoint = null;
+      el('use-checkpoint').hidden = !publishedCheckpoint;
     }
     el('baseline-card').hidden = !baseline;
     if (baseline) {
@@ -665,10 +667,14 @@ async function loadTraining() {
       el('baseline-run').hidden = !last?.run_id;
       if (last?.run_id) el('baseline-run').href = `/?run=${encodeURIComponent(last.run_id)}#judge`;
     }
+    el('evaluation-summary').textContent = 'No matched evaluation for this dataset yet.';
     if (evaluation) {
+      const scored = (policy) => evaluation.pairs
+        .map((pair) => pair.runs[policy])
+        .filter((run) => ['passed', 'task_timeout', 'wrong_bay', 'wrong_object_moved'].includes(run?.verdict));
       el('evaluation-summary').textContent = evaluation.status === 'complete'
         ? `The latest comparison scored ${evaluation.passes.base}/${evaluation.pairs.length} for the base model and ${evaluation.passes.fine_tuned}/${evaluation.pairs.length} for the fine-tune.`
-        : `The latest matched evaluation is ${evaluation.status}.`;
+        : `Evaluation ${evaluation.status} · ${scored('base').length} base and ${scored('fine_tuned').length} fine-tuned trials scored of ${evaluation.layouts.length * evaluation.repeats} per model.`;
       if (evaluation.status === 'complete' && evaluation.task === 'relay') {
         const base = evaluation.pairs.filter((pair) => pair.runs.base.checks?.transfer).length;
         const tuned = evaluation.pairs.filter((pair) => pair.runs.fine_tuned.checks?.transfer).length;

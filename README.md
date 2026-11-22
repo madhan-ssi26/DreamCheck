@@ -16,7 +16,7 @@ DreamCheck helps Dream-1 users see where a robot task failed, test one change fr
 
 [Held-out relay results](dreamcheck/docs/RELAY_EVALUATION.md) show how DreamCheck isolates the first incomplete stage across repeated trials.
 
-[Five-minute stage presentation (PDF)](dreamcheck/docs/DreamCheck-stage.pdf)
+[Three-minute demo and relay clips](dreamcheck/docs/demo/README.md) · [Five-minute stage presentation (PDF)](dreamcheck/docs/DreamCheck-stage.pdf)
 
 ## Quick start
 

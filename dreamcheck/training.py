@@ -40,8 +40,15 @@ def latest_training(bundle_id=None):
         result["bundles"].append({key: bundle[key] for key in ("id", "task")})
         if bundle_id == bundle["id"] or bundle_id is None and result["bundle"] is None:
             result["bundle"] = bundle
-    if evaluations:
-        result["evaluation"] = json.loads(evaluations[0].read_text(encoding="utf-8"))
+    bundle = result["bundle"]
+    if bundle:
+        task = {TASK: "apple", RELAY_PROMPT: "relay", SORTING_NAME: "sorting"}.get(bundle["task"])
+        checkpoint = bundle.get("job", {}).get("checkpoint")
+        for path in evaluations:
+            report = json.loads(path.read_text(encoding="utf-8"))
+            if report.get("task") == task and (not checkpoint or report["models"].get("fine_tuned") == checkpoint):
+                result["evaluation"] = report
+                break
     for path in baselines:
         report = json.loads(path.read_text(encoding="utf-8"))
         if report.get("task") == "relay":
@@ -245,6 +252,23 @@ def cloud_status(dataset_id=None, job_id=None):
         return {"datasets": [asdict(dataset) for dataset in client.get_datasets()], "jobs": fine_tuning.list()}
 
 
+def import_checkpoint(job_id):
+    job = cloud_status(job_id=job_id)
+    model = job.get("fine_tuned_model")
+    if job.get("status") != "succeeded" or not model:
+        raise CheckpointError("Choose a succeeded job with a published checkpoint.")
+    for path in sorted(OUTPUT.glob("*/manifest.json"), reverse=True):
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        if manifest.get("upload", {}).get("name") != job.get("dataset") or not job.get("dataset"):
+            continue
+        record = checkpoint_record(model)
+        receipt = {"id": job_id, "status": job["status"], "checkpoint": record.id, "base_model": record.base_model}
+        manifest["job"] = receipt
+        save_manifest(path, manifest)
+        return {"bundle": path.parent.name, **receipt}
+    raise CheckpointError("The job's dataset does not match a local uploaded training bundle.")
+
+
 def queue_training(dataset_id, suffix, steps):
     from dream import DreamClient
 
@@ -297,6 +321,7 @@ def evaluate(model, repeats, seconds, task="apple", *, baseline=None, base_model
         protocol["layout_prompts"] = prompts
     scored = {"passed", "task_timeout", "wrong_bay", "wrong_object_moved"}
     report = {"models": models, **protocol, "pairs": [], "status": "running"}
+    expected = {(layout, repeat) for layout in layouts for repeat in range(1, repeats + 1)}
     saved_pairs = {}
     if baseline is not None:
         try:
@@ -305,7 +330,6 @@ def evaluate(model, repeats, seconds, task="apple", *, baseline=None, base_model
                     or any(saved.get(key) != value for key, value in protocol.items())):
                 raise ValueError
             saved_pairs = {(pair["layout"], pair["repeat"]): pair["runs"]["base"] for pair in saved["pairs"]}
-            expected = {(layout, repeat) for layout in layouts for repeat in range(1, repeats + 1)}
             if (len(saved["pairs"]) != len(expected) or saved_pairs.keys() != expected
                     or any(run["verdict"] not in scored for run in saved_pairs.values())):
                 raise ValueError
@@ -316,24 +340,28 @@ def evaluate(model, repeats, seconds, task="apple", *, baseline=None, base_model
 
     resumed = {}
     if resume is not None:
-        if not saved_pairs:
-            raise ValueError("Resuming a fine-tuned evaluation requires its original baseline.")
         try:
             partial = json.loads(resume.read_text(encoding="utf-8"))
+            original_baseline = Path(partial["baseline_source"]).resolve() if "baseline_source" in partial else None
             if (partial["status"] not in {"running", "interrupted"} or partial["models"] != models
-                    or Path(partial["baseline_source"]).resolve() != baseline.resolve()
+                    or original_baseline != (baseline.resolve() if baseline else None)
                     or any(partial.get(key) != value for key, value in protocol.items())):
                 raise ValueError
             for pair in partial["pairs"]:
                 key = (pair["layout"], pair["repeat"])
-                if key in resumed or key not in saved_pairs or pair["runs"]["base"] != saved_pairs[key]:
+                runs = pair["runs"]
+                if key in resumed or key not in expected or runs.keys() - models.keys():
                     raise ValueError
-                run = pair["runs"].get("fine_tuned")
-                resumed[key] = run
+                if saved_pairs and runs["base"] != saved_pairs[key]:
+                    raise ValueError
+                resumed[key] = runs
         except (ValueError, OSError, KeyError, TypeError) as exc:
-            raise ValueError("Use a partial evaluation with the same checkpoint and original baseline protocol.") from exc
+            raise ValueError("Use a partial report with the same checkpoints, protocol, and baseline if originally supplied.") from exc
         report["resumed_from"] = str(resume.resolve())
-        report["prior_unscored_attempts"] = [run for run in resumed.values() if run and run["verdict"] not in scored]
+        report["prior_unscored_attempts"] = [
+            *partial.get("prior_unscored_attempts", []),
+            *(run for runs in resumed.values() for run in runs.values() if run["verdict"] not in scored),
+        ]
 
     def save():
         temporary = path.with_suffix(".tmp")
@@ -347,25 +375,25 @@ def evaluate(model, repeats, seconds, task="apple", *, baseline=None, base_model
             report["pairs"].append(pair)
             if saved_pairs:
                 pair["runs"]["base"] = saved_pairs[(layout, repetition)]
-                existing = resumed.get((layout, repetition))
-                if existing and existing["verdict"] in scored:
-                    pair["runs"]["fine_tuned"] = existing
-                    order = ()
-                    save()
-                else:
-                    order = ("fine_tuned",)
+                order = ("fine_tuned",)
             elif baseline_only:
                 order = ("base",)
             else:
                 order = ("fine_tuned", "base") if (index + repetition) % 2 else ("base", "fine_tuned")
+            pair["runs"].update({name: run for name, run in resumed.get((layout, repetition), {}).items()
+                                 if run["verdict"] in scored})
+            if pair["runs"]:
+                save()
             for name in order:
+                if name in pair["runs"]:
+                    continue
                 manager.start(prompts.get(layout, prompt), model=models[name], layout_id=layout, task=task,
                               actions=12 if name == "fine_tuned" else 24, seconds=seconds)
                 manager.thread.join()
                 run = manager.last_result
                 pair["runs"][name] = {key: run.get(key) for key in
                                       ("run_id", "verdict", "milestone", "checks", "failure_phase", "elapsed_seconds", "error",
-                                       "gripper_overshoot_tolerance")}
+                                       "api_error", "gripper_overshoot_tolerance")}
                 print(f"{layout} repeat {repetition} {name}: {run['verdict']} ({run['run_id']})", flush=True)
                 if run["verdict"] not in scored:
                     report["status"] = "interrupted"
