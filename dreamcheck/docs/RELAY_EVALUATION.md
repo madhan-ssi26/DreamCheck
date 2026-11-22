@@ -18,3 +18,14 @@ The fine-tune produced no gain on the transfer or end-to-end metric in this expe
 - Success requires observable left pickup, plate contact while both arms are clear, right pickup, and settled bowl placement after release.
 
 The [interactive replay](http://127.0.0.1:8765/replay/index.html) shows a scripted completion. The [training guide](training/README.md) covers dataset collection, training, and how to run a new evaluation.
+
+## Longer-budget follow-up
+
+Two additional trials used the trained checkpoint, the original prompt, and the same held-out layout. The wall-clock cap was 120 seconds for both.
+
+| Actions per reply | Simulated seconds executed | First incomplete stage |
+| ---: | ---: | --- |
+| 12 | 81.4 | Plate transfer |
+| 24 | 95.3 | Plate transfer |
+
+The reference finished the same layout in 44.95 simulated seconds. The trained checkpoint lifted the apple in both longer trials and failed to complete transfer. These two diagnostic runs are separate from the 20-trial scores.
