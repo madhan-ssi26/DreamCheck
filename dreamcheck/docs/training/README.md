@@ -66,6 +66,7 @@ The first evaluations used the plain policy loop and a wall-clock limit. The fol
 - The apple follow-up uses no simulator signal. The fine-tune's six passes took 27.1–30.4 simulated seconds. The base stopped at pickup four times and transport twice.
 - The stage gate reads simulator contacts, so the relay and sorting follow-ups are simulator-assisted. The sorting fine-tune passed all four fruit and bay conditions in 72.6–136.3 simulated seconds. The base moved the unrequested fruit three times and released in the wrong bay once.
 - Stride alone was insufficient for sorting. Three fine-tune trials with stride 2 and no gate completed the plate transfer and none completed the right pickup (`1dbaf0d590e3`, `060e57a32398`, `844dc600cf6c`).
+- Six further runs with the same aids were recorded in HD for the demo video, outside the reports. The relay, the apple placement, and two sorting runs passed, and the relay plain-loop run timed out. One sorting run on `sort-holdout-orange-far_bay-00` moved the unrequested fruit and failed, on a layout that passed in the report.
 - The two columns differ in time basis, action horizon, and trial count, and the follow-up has one or two trials per layout. Treat them as separate experiments. The held-out layouts sit within millimetres of the training layouts.
 
 ### Project checkpoints

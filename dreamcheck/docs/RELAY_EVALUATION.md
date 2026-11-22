@@ -56,7 +56,7 @@ How to read this result:
 
 The same aids took the sorting fine-tune from 0/16 to 8/8 and a plan stride alone took the apple fine-tune from 0/6 to 6/6. [All three follow-ups](training/README.md#results-with-the-run-aids)
 
-Reproduce with `python -m dreamcheck train evaluate --task relay --model CHECKPOINT_ID --repeats 1 --seconds 150 --stage-gate --stride 2`. In Judge, open a relay timeout and choose **Retry with stage gate**, or choose **Test a fix** to run the plain loop and the gated loop from the same scene. The [33-second comparison clip](demo/relay-stage-gate.mp4) shows the same checkpoint, prompt, and layout with and without the two changes.
+Reproduce with `python -m dreamcheck train evaluate --task relay --model CHECKPOINT_ID --repeats 1 --seconds 150 --stage-gate --stride 2`. In Judge, open a relay timeout and choose **Retry with stage gate**, or choose **Test a fix** to run the plain loop and the gated loop from the same scene. The [27-second comparison clip](demo/relay-stage-gate.mp4) shows the same checkpoint, prompt, and `relay-holdout-03` layout with and without the two changes. It comes from two footage runs outside the report: the plain loop timed out at 150 simulated seconds and the gated run passed at 80.0.
 
 ## Longer-budget follow-up
 

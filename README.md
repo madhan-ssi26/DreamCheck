@@ -19,7 +19,7 @@ DreamCheck helps Dream-1 users see where a robot task failed and measure whether
 | [Recording import](dreamcheck/docs/recordings/README.md) | Inspect LeRobot v2.1 video and telemetry, bookmark a failure, and export evidence. |
 | [Fine-tune](dreamcheck/docs/training/README.md) | Prepare validated demonstrations, probe a published checkpoint against them, and evaluate it against its base model. |
 
-[Held-out relay results](dreamcheck/docs/RELAY_EVALUATION.md) show the full loop on our own fine-tune. The relay checkpoint scored 0/20 on held-out layouts. A demonstration probe showed that it starts the wrong arm from the shared home pose and moves at about a third of the demonstrated pace. With a simulator-assisted stage gate and a faster plan playback, the same checkpoint and prompt passed 8/10 held-out trials while Dream-1 Beta passed 0/10 under the same gate. [Watch the 33-second comparison](dreamcheck/docs/demo/relay-stage-gate.mp4).
+[Held-out relay results](dreamcheck/docs/RELAY_EVALUATION.md) show the full loop on our own fine-tune. The relay checkpoint scored 0/20 on held-out layouts. A demonstration probe showed that it starts the wrong arm from the shared home pose and moves at about a third of the demonstrated pace. With a simulator-assisted stage gate and a faster plan playback, the same checkpoint and prompt passed 8/10 held-out trials while Dream-1 Beta passed 0/10 under the same gate. [Watch the 27-second comparison](dreamcheck/docs/demo/relay-stage-gate.mp4).
 
 | Held-out passes, fine-tune vs Dream-1 Beta | Plain policy loop | With DreamCheck run aids |
 | --- | ---: | ---: |

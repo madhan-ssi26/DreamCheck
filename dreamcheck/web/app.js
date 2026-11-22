@@ -615,7 +615,8 @@ el('play-run').onclick = () => {
     showPeak = false;
     renderTrace();
     renderCamera();
-    el('timeline').querySelector(`[data-chunk="${selectedChunk}"]`)?.scrollIntoView({block: 'nearest', inline: 'center'});
+    const button = el('timeline').querySelector(`[data-chunk="${selectedChunk}"]`);
+    if (button) el('timeline').scrollLeft = button.offsetLeft - el('timeline').clientWidth / 2;
   };
   advance();
   playback = setInterval(advance, 220);
