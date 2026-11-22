@@ -4,7 +4,21 @@ DreamCheck helps Dream-1 users see where a robot task failed and measure whether
 
 [![DreamCheck Home with the Workshop simulator, links to Judge, Import, and Compare, and held-out results for three fine-tuned checkpoints](dreamcheck/docs/images/home.webp)](dreamcheck/docs/TWO_MINUTE_GUIDE.md)
 
-[Two-minute new-user guide](dreamcheck/docs/TWO_MINUTE_GUIDE.md) · [Interactive relay replay on localhost](http://127.0.0.1:8765/replay/index.html)
+[Three-minute intro](dreamcheck/docs/demo/DreamCheck-submission.mp4) · [Silent technical walkthrough](dreamcheck/docs/demo/DreamCheck-technical-demo.mp4) · [Slides](dreamcheck/docs/DreamCheck-stage.pptx) · [Two-minute quickstart](dreamcheck/docs/TWO_MINUTE_GUIDE.md)
+
+## Watch or try it
+
+| Resource | What you can see or do |
+| --- | --- |
+| [Three-minute intro](dreamcheck/docs/demo/DreamCheck-submission.mp4) | Follow a failed relay from diagnosis through a measured fix, with team narration. |
+| [Silent technical walkthrough](dreamcheck/docs/demo/DreamCheck-technical-demo.mp4) | Watch actual app interactions, inspect the demonstration probe, and follow the plain and gated simulator runs side by side. |
+| [Editable PowerPoint](dreamcheck/docs/DreamCheck-stage.pptx) · [PDF](dreamcheck/docs/DreamCheck-stage.pdf) | Read the six-slide presentation and its results. The PowerPoint includes timed speaker notes. |
+| [Download the interactive relay replay](dreamcheck/docs/demo/DreamCheck-interactive-replay.zip) | Unzip and open `index.html`. Click a stage or press the arrow keys. The replay runs offline with the bundled frames. |
+| [Download the Workshop scene](dreamcheck/docs/demo/DreamCheck-workshop-scene.zip) | Import this MuJoCo ZIP, preview its objects and cameras, and define a goal region. |
+
+The [demo guide](dreamcheck/docs/demo/README.md) has chapter timestamps and simulator clips. With the app running, open the [interactive replay on localhost](http://127.0.0.1:8765/replay/index.html).
+
+## Inspect and test a run
 
 1. Open a run in **Judge** to see the physical failure stage, prepared camera inputs, and action trace.
 2. Choose **Test a fix** to edit one instruction while keeping the checkpoint, starting scene, and time limit fixed.
@@ -29,8 +43,6 @@ DreamCheck helps Dream-1 users see where a robot task failed and measure whether
 
 No checkpoint was retrained. The relay and sorting follow-ups use simulator contacts for the stage gate, and the two columns use different time limits. [Protocols and caveats](dreamcheck/docs/training/README.md#results-with-the-run-aids)
 
-[Three-minute demo and relay clips](dreamcheck/docs/demo/README.md) · [Five-minute stage presentation (PDF)](dreamcheck/docs/DreamCheck-stage.pdf)
-
 ## Quick start
 
 Use Python 3.12 and Chrome or Edge. The quick start below targets Windows. Run these commands from the checkout root in PowerShell.
@@ -52,11 +64,31 @@ The [setup and troubleshooting guide](dreamcheck/docs/setup/README.md) covers th
 ## Visual walkthrough
 
 <details>
+<summary>Find the stage and pace mismatch in a demonstration probe</summary>
+
+![Demonstration probe comparing movement for each arm and showing the checkpoint moving the right arm too early](dreamcheck/docs/images/demonstration-probe.webp)
+
+The probe asks for a fresh plan at thirteen observed demonstration states. At the shared home pose, the plan moves the right arm early. [Probe and relay protocol](dreamcheck/docs/RELAY_EVALUATION.md#demonstration-probe-and-stage-gate)
+
+</details>
+
+<details>
+<summary>Check the plain and gated runs on the same scene</summary>
+
+[![Plain relay timed out and the gated candidate completed placement on the same holdout scene](dreamcheck/docs/images/matched-relay.webp)](dreamcheck/docs/demo/relay-stage-gate.mp4)
+
+The example uses the same fine-tuned checkpoint, prompt, and scene in two separate runs. The candidate uses the stage gate and plan stride 2. [Watch the 27-second run comparison](dreamcheck/docs/demo/relay-stage-gate.mp4)
+
+</details>
+
+<details>
 <summary>Inspect the two-arm relay in Judge</summary>
 
 ![Completed scripted relay with camera evidence and a physical verdict](dreamcheck/docs/images/relay-judge.webp)
 
 The left arm stages the apple on a plate. The right arm picks it up and places it in the bowl. Explore the [four collapsible stages](dreamcheck/docs/TWO_MINUTE_GUIDE.md#click-through-the-same-example-on-github).
+
+[See the three prepared camera windows and reply timing on a failed run](dreamcheck/docs/images/camera-inputs.webp).
 
 </details>
 
